@@ -1,6 +1,7 @@
 #pragma once
 #include <functional>
 #include <map>
+#include <tuple>
 #include "PluginProcessor.h"
 
 namespace look
@@ -101,7 +102,9 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
-    juce::Point<float> socketCentre() const { return getBounds().getCentre().toFloat(); }
+    void mouseEnter (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
+    juce::Point<float> socketCentre() const;
 
     JackKind kind;
     int index;
@@ -110,35 +113,37 @@ private:
     PatchBay& owner;
 };
 
-// ---------------------------------------------------------------- patchbay (a droite)
+// ---------------------------------------------------------------- calque des cables : transparent, recouvre toute la fenetre.
+// Les prises vivent sur la face de chaque module ; ce calque dessine les cables fins par-dessus et gere le glisser-deposer.
 class PatchBay : public juce::Component
 {
 public:
     explicit PatchBay (OrageAudioProcessor&);
-    void layoutRows();                              // relit le rack du moteur : lignes et prises
+    Jack* makeJack (juce::Component& parent, JackKind, int index);
     void paint (juce::Graphics&) override;
-    void paintOverChildren (juce::Graphics&) override;
+    bool hitTest (int, int) override { return false; }
     void beginDrag (Jack&);
     void dragMoved (juce::Point<int>);
     void endDrag (juce::Point<int>);
     void clearJack (Jack&);
-    uint32_t patchHash() const;
+    void hover (Jack* j) { if (hovered != j) { hovered = j; repaint(); } }
+    uint32_t stateHash() const;
     void repaintLeds();
+    juce::Point<float> centreOf (const Jack&) const;
 
+    bool cablesVisible = true;
     OrageAudioProcessor& proc;
 private:
-    struct Row { int node; juce::String name; };
-    Jack* add (JackKind, int index);
+    bool usable (const Jack*) const;
     void tryConnect (Jack&, Jack&);
 
-    std::vector<Row> rows;
     std::vector<std::unique_ptr<Jack>> jacks;
     Jack* audioOutJ[orage::kNumNodes] {};
     Jack* audioInJ[orage::kNumNodes] {};
     Jack* cvOutJ[orage::kNumSrc] {};
     Jack* cvInJ[orage::kNumCv] {};
-    int audioTop = 74, cvTop = 0;
     Jack* dragFrom = nullptr;
+    Jack* hovered = nullptr;
     juce::Point<float> dragPos;
 };
 
@@ -154,6 +159,9 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
 
+    void addJack (Jack*, int col, int row, const juce::String& label);
+    int jackStripWidth() const { return jackCols > 0 ? jackCols * 58 + 8 : 0; }
+
     int node;
     juce::String title;
     int fullHeight;
@@ -162,6 +170,9 @@ public:
     std::function<void()> onRemove;
     int currentHeight() const { return collapsed ? 26 : fullHeight; }
 private:
+    struct JackSlot { Jack* jack; int col, row; juce::String label; };
+    std::vector<JackSlot> jackSlots;
+    int jackCols = 0;
     RackView* rackView;
     enum Region { None, Handle, Collapse, Remove } pressed = None;
     Region regionAt (juce::Point<int>) const;
@@ -195,13 +206,38 @@ public:
     void paintOverChildren (juce::Graphics&) override;
     juce::String title;
     std::vector<std::pair<juce::String, int>> subtitles;        // (texte, y) serigraphies supplementaires
+    std::vector<std::tuple<juce::String, int, int>> notes;      // (texte centre, x, y) etiquettes de prises
+};
+
+// ---------------------------------------------------------------- boite de dialogue integree (plaque metal, assortie au design)
+class OrageDialog : public juce::Component
+{
+public:
+    OrageDialog (juce::String title, juce::String message, bool askText, juce::String initialText, juce::String okText,
+                 std::function<void (bool, const juce::String&)> callback);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
+    void focus();
+
+    std::function<void()> onFinished;
+private:
+    void finish (bool ok);
+    juce::String titleText, messageText;
+    bool hasText;
+    juce::TextEditor editor;
+    juce::TextButton okBtn, cancelBtn;
+    std::function<void (bool, const juce::String&)> cb;
+    juce::Rectangle<int> box;
+    bool done = false;
 };
 
 // ---------------------------------------------------------------- editeur
 class OrageAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
-    explicit OrageAudioProcessorEditor (OrageAudioProcessor&);
+    explicit OrageAudioProcessorEditor (OrageAudioProcessor&, juce::String title = "ORAGE FX",
+                                        juce::String subtitle = "SEMI-MODULAR HIGH VOLTAGE DISTORTION");
     ~OrageAudioProcessorEditor() override;
 
     void paint (juce::Graphics&) override;
@@ -212,6 +248,8 @@ public:
     void refreshRack();                                         // reconstruit rack, patchbay et tuiles depuis le moteur
 
     OrageAudioProcessor& proc;
+    juce::String titleText, subText;
+    juce::Component* dialogHost = nullptr;                      // si non nul : composant qui porte les dialogues (fenetre complete)
 
 private:
     void timerCallback() override;
@@ -220,6 +258,8 @@ private:
     void presetMenu();
     void afterPreset();
     void saveDialog();
+    void showDialog (const juce::String& title, const juce::String& message, bool askText, const juce::String& initial,
+                     const juce::String& okText, std::function<void (bool, const juce::String&)> cb);
     void stepPreset (int dir);
     void confirm (const juce::String& title, const juce::String& message, std::function<void()> action);
     KnobUnit* mk (juce::Component& parent, const char* id, const juce::String& text, const char* lo = "0", const char* hi = "10", int cv = -1);
@@ -243,6 +283,9 @@ private:
     PlatePanel side { "MODULES" };
     std::vector<std::unique_ptr<juce::TextButton>> tiles;       // une par module audio
     PatchBay patchBay;
+    std::unique_ptr<OrageDialog> dialog;
+    Jack *jackIn = nullptr, *jackOut = nullptr, *jackMix = nullptr;
+    LedToggle cablesBtn;
 
     std::vector<std::unique_ptr<KnobUnit>> knobs;
     std::map<std::string, KnobUnit*> knobById;

@@ -46,11 +46,36 @@ void drawSpecks (juce::Graphics& g, juce::Rectangle<int> r)
 
 void drawPlate (juce::Graphics& g, juce::Rectangle<float> b)
 {
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1a1a1d).withAlpha (0.88f), 0.f, b.getY(),
-                                             juce::Colour (0xff0d0d0f).withAlpha (0.88f), 0.f, b.getBottom(), false));
-    g.fillRoundedRectangle (b.reduced (1.f), 5.f);
-    g.setColour (look::print.withAlpha (0.32f));
-    g.drawRoundedRectangle (b.reduced (1.f), 5.f, 1.2f);
+    g.setColour (juce::Colour (0xff0b0b0c).withAlpha (0.45f));                  // panneau noir, zone sérigraphiée
+    g.fillRect (b.reduced (1.f));
+    g.setColour (look::print.withAlpha (0.72f));
+    g.drawRect (b.reduced (1.f), 1.4f);
+}
+
+// pictogrammes d'ondes (selecteurs de forme d'onde, facon MS20)
+bool drawGlyph (juce::Graphics& g, const juce::String& name, juce::Rectangle<float> r)
+{
+    juce::Path p;
+    auto pt = [&r] (float x, float y) { return juce::Point<float> (r.getX() + x * r.getWidth(), r.getY() + y * r.getHeight()); };
+    if (name == "SAW")                { p.startNewSubPath (pt (0.f, 1.f)); p.lineTo (pt (0.5f, 0.f)); p.lineTo (pt (0.5f, 1.f)); p.lineTo (pt (1.f, 0.f)); }
+    else if (name == "PULSE" || name == "SQR") { p.startNewSubPath (pt (0.f, 1.f)); p.lineTo (pt (0.f, 0.f)); p.lineTo (pt (0.5f, 0.f)); p.lineTo (pt (0.5f, 1.f)); p.lineTo (pt (1.f, 1.f)); p.lineTo (pt (1.f, 0.f)); }
+    else if (name == "TRI")           { p.startNewSubPath (pt (0.f, 0.5f)); p.lineTo (pt (0.25f, 0.f)); p.lineTo (pt (0.75f, 1.f)); p.lineTo (pt (1.f, 0.5f)); }
+    else if (name == "SIN")
+    {
+        for (int i = 0; i <= 24; ++i)
+        {
+            const auto q = pt ((float) i / 24.f, 0.5f - 0.5f * std::sin ((float) i / 24.f * 6.2831853f));
+            if (i == 0) p.startNewSubPath (q); else p.lineTo (q);
+        }
+    }
+    else if (name == "S&H")
+    {
+        p.startNewSubPath (pt (0.f, 0.7f)); p.lineTo (pt (0.25f, 0.7f)); p.lineTo (pt (0.25f, 0.15f)); p.lineTo (pt (0.5f, 0.15f));
+        p.lineTo (pt (0.5f, 0.9f)); p.lineTo (pt (0.75f, 0.9f)); p.lineTo (pt (0.75f, 0.4f)); p.lineTo (pt (1.f, 0.4f));
+    }
+    else return false;
+    g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt));
+    return true;
 }
 
 const char* nodeName (int n)
@@ -58,36 +83,29 @@ const char* nodeName (int n)
     static const char* names[kNumNodes] { "INPUT", "OCTAVER", "DISTORSION", "COLOR", "FILTER", "DESTROY", "COMP", "SPRING", "GATE", "OUTPUT" };
     return names[juce::jlimit (0, (int) kNumNodes - 1, n)];
 }
-const char* const kCvNames[kNumCv] { "DRIVE", "CLIP", "UNCERT.", "HPF", "LPF", "PEAK", "DESTROY", "D.RATE", "SPRING", "MIX", "S&H IN", "S&H CLK" };
-const char* const kSrcNames[kNumSrc] { "LFO 1", "LFO 2", "S&H", "ENV" };
 
 const juce::Colour kCablePalette[6] { juce::Colour (0xffd8482a), juce::Colour (0xffe3b23a), juce::Colour (0xff3aa0d8),
                                       juce::Colour (0xff53b86a), juce::Colour (0xffc05ad8), juce::Colour (0xffe6e4da) };
 
-void drawCable (juce::Graphics& g, juce::Point<float> a, juce::Point<float> b, juce::Colour col)
+void drawCable (juce::Graphics& g, juce::Point<float> a, juce::Point<float> b, juce::Colour col, float alpha = 0.8f, float extra = 0.f)
 {
-    const float dx = juce::jmax (40.f, std::abs (b.x - a.x) * 0.5f), sag = 14.f + a.getDistanceFrom (b) * 0.06f;
+    const float dx = juce::jmax (30.f, std::abs (b.x - a.x) * 0.4f), sag = 10.f + a.getDistanceFrom (b) * 0.08f;
     juce::Path p;
     p.startNewSubPath (a);
     p.cubicTo (a.x + dx, a.y + sag, b.x - dx, b.y + sag, b.x, b.y);
-    const juce::PathStrokeType thick (7.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-    g.setColour (juce::Colours::black.withAlpha (0.38f));
-    g.strokePath (p, thick, juce::AffineTransform::translation (2.f, 5.f));
-    g.setColour (col.darker (0.6f));
-    g.strokePath (p, thick);
-    g.setColour (col);
-    g.strokePath (p, juce::PathStrokeType (4.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-    g.setColour (juce::Colours::white.withAlpha (0.33f));
-    g.strokePath (p, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
-                  juce::AffineTransform::translation (-0.8f, -1.3f));
+    g.setColour (juce::Colours::black.withAlpha (0.35f * alpha));
+    g.strokePath (p, juce::PathStrokeType (4.4f + extra, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                  juce::AffineTransform::translation (1.f, 3.f));
+    g.setColour (col.darker (0.5f).withAlpha (alpha));
+    g.strokePath (p, juce::PathStrokeType (4.f + extra, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour (col.withAlpha (alpha));
+    g.strokePath (p, juce::PathStrokeType (2.6f + extra, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     for (auto c : { a, b })
     {
-        g.setColour (juce::Colour (0xff141417));
-        g.fillEllipse (c.x - 10.f, c.y - 10.f, 20.f, 20.f);
-        g.setColour (col);
-        g.drawEllipse (c.x - 7.5f, c.y - 7.5f, 15.f, 15.f, 2.2f);
-        g.setColour (juce::Colour (0xffc8c8cc));
-        g.fillEllipse (c.x - 3.f, c.y - 3.f, 6.f, 6.f);
+        g.setColour (juce::Colour (0xff141417).withAlpha (alpha));
+        g.fillEllipse (c.x - 8.f, c.y - 8.f, 16.f, 16.f);
+        g.setColour (col.withAlpha (alpha));
+        g.drawEllipse (c.x - 6.f, c.y - 6.f, 12.f, 12.f, 1.8f);
     }
 }
 } // namespace
@@ -121,7 +139,8 @@ void OrageLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w,
                                          float startAngle, float endAngle, juce::Slider& s)
 {
     const auto c = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h).getCentre();
-    const float r = (float) juce::jmin (w, h) * 0.5f, kr = r * 0.66f, tr = kr * 0.86f;
+    const bool numbered = (bool) s.getProperties()["numbered"];
+    const float r = (float) juce::jmin (w, h) * 0.5f, kr = r * (numbered ? 0.58f : 0.66f), tr = kr * 0.86f;
     const float angle = startAngle + pos * (endAngle - startAngle);
     juce::Random rr ((int) s.getProperties()["seed"]);
     const float alpha = s.isEnabled() ? 1.f : 0.5f;
@@ -188,6 +207,7 @@ KnobUnit::KnobUnit (juce::AudioProcessorValueTreeState& apvts, const juce::Strin
     slider.getProperties().set ("seed", id.hashCode());
     if (auto* prm = apvts.getParameter (id))
         slider.setDoubleClickReturnValue (true, prm->convertFrom0to1 (prm->getDefaultValue()));
+    if (loText == "0" && hiText == "10") slider.getProperties().set ("numbered", true);
     if (slider.getMinimum() == 0.0 && slider.getMaximum() == 1.0)
         slider.textFromValueFunction = [] (double v) { return juce::String (v * 10.0, 1); };
     addAndMakeVisible (slider);
@@ -204,16 +224,26 @@ void KnobUnit::paint (juce::Graphics& g)
     const float r = juce::jmin (sb.getWidth(), sb.getHeight()) * 0.5f;
     const float sa = juce::MathConstants<float>::pi * 1.2f, ea = juce::MathConstants<float>::pi * 2.8f;
     const float alpha = slider.isEnabled() ? 1.f : 0.45f;
+    const bool numbered = (bool) slider.getProperties()["numbered"] && sb.getWidth() >= 58.f;
     for (int i = 0; i <= 10; ++i)
     {
-        const float a = sa + (float) i / 10.f * (ea - sa), rad = r * 0.93f, dot = (i % 5 == 0) ? 3.4f : 2.2f;
+        const float a = sa + (float) i / 10.f * (ea - sa), rad = r * (numbered ? 0.74f : 0.93f), dot = (i % 5 == 0) ? 3.2f : 2.f;
         g.setColour (look::print.withAlpha (0.88f * alpha));
         g.fillEllipse (c.x + rad * std::sin (a) - dot * 0.5f, c.y - rad * std::cos (a) - dot * 0.5f, dot, dot);
+        if (numbered)                                                              // chiffres 0..10 autour du bouton, comme le MS20
+        {
+            g.setFont (font (8.f));
+            g.drawText (juce::String (i), (int) (c.x + r * 0.93f * std::sin (a)) - 7, (int) (c.y - r * 0.93f * std::cos (a)) - 5, 14, 10,
+                        juce::Justification::centred, false);
+        }
     }
-    g.setFont (font (8.5f));
-    g.setColour (look::print.withAlpha (0.8f * alpha));
-    g.drawText (loText, (int) (c.x - r * 0.78f) - 14, (int) (c.y + r * 0.88f), 28, 11, juce::Justification::centred, false);
-    g.drawText (hiText, (int) (c.x + r * 0.78f) - 14, (int) (c.y + r * 0.88f), 28, 11, juce::Justification::centred, false);
+    if (! numbered)
+    {
+        g.setFont (font (8.5f));
+        g.setColour (look::print.withAlpha (0.8f * alpha));
+        g.drawText (loText, (int) (c.x - r * 0.78f) - 14, (int) (c.y + r * 0.88f), 28, 11, juce::Justification::centred, false);
+        g.drawText (hiText, (int) (c.x + r * 0.78f) - 14, (int) (c.y + r * 0.88f), 28, 11, juce::Justification::centred, false);
+    }
     g.setFont (font (getWidth() < 80 ? 10.f : 11.f));
     g.setColour (look::print.withAlpha (0.95f * alpha));
     g.drawText (text, -4, getHeight() - 15, getWidth() + 8, 14, juce::Justification::centred, false);
@@ -250,8 +280,17 @@ void SegmentSelector::paint (juce::Graphics& g)
         g.setColour (on ? juce::Colour (0xffff9a3a) : juce::Colour (0xff3a1408));
         g.fillEllipse (led);
         g.setColour (on ? look::print : look::print.withAlpha (0.6f));
-        g.setFont (font (9.5f));
-        g.drawText (labels[i], r.withTrimmedTop (10.f), juce::Justification::centred, false);
+        const auto glyphArea = r.withTrimmedTop (13.f).withTrimmedBottom (r.getHeight() > 36.f ? 11.f : 0.f).reduced (7.f, 2.f);
+        if (r.getHeight() > 36.f && drawGlyph (g, labels[i], glyphArea))
+        {
+            g.setFont (font (8.f));
+            g.drawText (labels[i], r.withTrimmedTop (r.getHeight() - 12.f), juce::Justification::centred, false);
+        }
+        else
+        {
+            g.setFont (font (9.5f));
+            g.drawText (labels[i], r.withTrimmedTop (10.f), juce::Justification::centred, false);
+        }
     }
 }
 
@@ -377,6 +416,8 @@ void LedLamp::paint (juce::Graphics& g)
 // ================================================================ prise jack
 Jack::Jack (PatchBay& o, JackKind k, int i) : kind (k), index (i), owner (o) { setSize (28, 28); }
 
+juce::Point<float> Jack::socketCentre() const { return owner.centreOf (*this); }
+
 void Jack::paint (juce::Graphics& g)
 {
     const juce::Rectangle<float> s (3.f, 3.f, 22.f, 22.f);
@@ -414,64 +455,71 @@ void Jack::mouseDown (const juce::MouseEvent& e)
 void Jack::mouseDrag (const juce::MouseEvent& e) { owner.dragMoved (e.getEventRelativeTo (&owner).getPosition()); }
 void Jack::mouseUp (const juce::MouseEvent& e)   { owner.endDrag (e.getEventRelativeTo (&owner).getPosition()); }
 void Jack::mouseDoubleClick (const juce::MouseEvent&) { owner.clearJack (*this); }
+void Jack::mouseEnter (const juce::MouseEvent&) { owner.hover (this); }
+void Jack::mouseExit (const juce::MouseEvent&)  { owner.hover (nullptr); }
 
-// ================================================================ patchbay
+// ================================================================ calque des cables
 PatchBay::PatchBay (OrageAudioProcessor& p) : proc (p)
 {
-    for (int n = NIn; n < NOut; ++n)       audioOutJ[n] = add (JackKind::AudioOut, n);
-    for (int n = NOct; n < kNumNodes; ++n) audioInJ[n]  = add (JackKind::AudioIn, n);
-    for (int s = 0; s < kNumSrc; ++s)      cvOutJ[s] = add (JackKind::CvOut, s);
-    for (int d = 0; d < kNumCv; ++d)       cvInJ[d]  = add (JackKind::CvIn, d);
+    setInterceptsMouseClicks (false, false);
 }
 
-Jack* PatchBay::add (JackKind k, int index)
+Jack* PatchBay::makeJack (juce::Component& parent, JackKind k, int index)
 {
     jacks.push_back (std::make_unique<Jack> (*this, k, index));
-    addChildComponent (*jacks.back());
-    return jacks.back().get();
-}
-
-void PatchBay::layoutRows()
-{
-    for (auto& j : jacks) j->setVisible (false);
-    rows.clear();
-    rows.push_back ({ NIn, nodeName (NIn) });
-    for (int n : proc.engine.getRack()) rows.push_back ({ n, nodeName (n) });
-    rows.push_back ({ NOut, nodeName (NOut) });
-
-    const int jl = 104, jr = getWidth() - 104, rowH = 30;
-    int y = audioTop;
-    for (const auto& r : rows)
+    auto* j = jacks.back().get();
+    parent.addAndMakeVisible (*j);
+    switch (k)
     {
-        if (r.node != NOut) { audioOutJ[r.node]->setCentrePosition (jl, y + rowH / 2); audioOutJ[r.node]->setVisible (true); }
-        if (r.node != NIn)  { audioInJ[r.node]->setCentrePosition (jr, y + rowH / 2);  audioInJ[r.node]->setVisible (true); }
-        y += rowH;
+        case JackKind::AudioOut: audioOutJ[index] = j; break;
+        case JackKind::AudioIn:  audioInJ[index] = j; break;
+        case JackKind::CvOut:    cvOutJ[index] = j; break;
+        case JackKind::CvIn:     cvInJ[index] = j; break;
     }
-    cvTop = y + 62;
-    for (int s = 0; s < kNumSrc; ++s) { cvOutJ[s]->setCentrePosition (jl, cvTop + s * 26 + 13); cvOutJ[s]->setVisible (true); }
-    for (int d = 0; d < kNumCv; ++d)  { cvInJ[d]->setCentrePosition (jr, cvTop + d * 26 + 13);  cvInJ[d]->setVisible (true); }
-    repaint();
+    return j;
 }
 
-uint32_t PatchBay::patchHash() const
+juce::Point<float> PatchBay::centreOf (const Jack& j) const
 {
-    uint32_t h = 17;
+    return getLocalPoint (&j, j.getLocalBounds().getCentre()).toFloat();
+}
+
+bool PatchBay::usable (const Jack* j) const
+{
+    if (j == nullptr) return false;
+    for (const juce::Component* p = j; p != nullptr; p = p->getParentComponent())          // visible = toute la chaine de parents l'est
+        if (! p->isVisible()) return false;
+    if (auto* vp = j->findParentComponentOfClass<juce::Viewport>())                       // prise defilee hors du rack : pas de cable
+        if (! vp->getLocalBounds().contains (vp->getLocalPoint (j, j->getLocalBounds().getCentre()))) return false;
+    return true;
+}
+
+uint32_t PatchBay::stateHash() const
+{
+    uint32_t h = cablesVisible ? 17u : 19u;
     for (auto& a : proc.engine.audioIn) h = h * 31u + a.load();
     for (auto& c : proc.engine.cvIn)    h = h * 31u + c.load();
+    for (auto& j : jacks)
+        if (usable (j.get()))
+        {
+            const auto p = centreOf (*j);
+            h = h * 31u + (uint32_t) ((int) p.x * 4099 + (int) p.y);
+        }
+    h = h * 31u + (hovered != nullptr ? 1u : 0u);
     return h;
 }
 
-void PatchBay::repaintLeds() { for (int s = 0; s < kNumSrc; ++s) if (cvOutJ[s]) cvOutJ[s]->repaint(); }
+void PatchBay::repaintLeds() { for (auto* j : cvOutJ) if (usable (j)) j->repaint(); }
 
 void PatchBay::beginDrag (Jack& j)
 {
     dragFrom = &j;
-    dragPos = j.socketCentre();
+    dragPos = centreOf (j);
     auto isSrc = [] (JackKind k) { return k == JackKind::AudioOut || k == JackKind::CvOut; };
     auto isAudio = [] (JackKind k) { return k == JackKind::AudioOut || k == JackKind::AudioIn; };
     for (auto& o : jacks)
     {
-        o->highlight = o->isVisible() && o.get() != &j && isSrc (o->kind) != isSrc (j.kind) && isAudio (o->kind) == isAudio (j.kind);
+        o->highlight = usable (o.get()) && o.get() != &j && isSrc (o->kind) != isSrc (j.kind) && isAudio (o->kind) == isAudio (j.kind);
         o->repaint();
     }
 }
@@ -492,7 +540,7 @@ void PatchBay::endDrag (juce::Point<int> p)
     if (dragFrom != nullptr)
     {
         for (auto& o : jacks)
-            if (o->isVisible() && o.get() != dragFrom && o->getBounds().expanded (3).contains (p)) { tryConnect (*dragFrom, *o); break; }
+            if (o.get() != dragFrom && usable (o.get()) && centreOf (*o).getDistanceFrom (p.toFloat()) < 18.f) { tryConnect (*dragFrom, *o); break; }
         dragFrom = nullptr;
     }
     for (auto& o : jacks) if (o->highlight) { o->highlight = false; o->repaint(); }
@@ -515,85 +563,51 @@ void PatchBay::clearJack (Jack& j)
 
 void PatchBay::paint (juce::Graphics& g)
 {
-    const auto b = getLocalBounds().toFloat();
-    drawPlate (g, b);
-    const int W = getWidth(), jl = 104, jr = W - 104;
+    if (! cablesVisible && dragFrom == nullptr) return;
+    auto& e = proc.engine;
 
-    auto heading = [&] (const juce::String& t, int y)
-    {
-        g.setColour (look::print.withAlpha (0.95f));
-        g.setFont (font (12.f));
-        g.drawText (t, 14, y, W - 28, 16, juce::Justification::centredLeft, false);
-        g.setColour (juce::Colour (0xffc8281c));
-        g.fillRect (14, y + 18, 26, 2);
-        g.setColour (look::print.withAlpha (0.55f));
-        g.setFont (font (8.5f));
-        g.drawText ("OUT", jl - 22, y + 2, 44, 12, juce::Justification::centred, false);
-        g.drawText ("IN", jr - 22, y + 2, 44, 12, juce::Justification::centred, false);
-    };
-    heading ("PATCHBAY - AUDIO", 14);
-    heading ("PATCHBAY - CV", cvTop - 52);
-
-    g.setFont (font (10.f));
-    g.setColour (look::print.withAlpha (0.92f));
-    for (const auto& r : rows)
-    {
-        if (r.node != NOut)
-        {
-            const int cy = audioOutJ[r.node]->getBounds().getCentreY();
-            g.drawText (r.name, 10, cy - 7, jl - 24, 14, juce::Justification::centredRight, false);
-        }
-        if (r.node != NIn)
-        {
-            const int cy = audioInJ[r.node]->getBounds().getCentreY();
-            g.drawText (r.name, jr + 22, cy - 7, W - jr - 30, 14, juce::Justification::centredLeft, false);
-        }
-    }
-    g.setColour (look::cvRing.withAlpha (0.95f));
-    for (int s = 0; s < kNumSrc; ++s)
-        g.drawText (kSrcNames[s], 10, cvOutJ[s]->getBounds().getCentreY() - 7, jl - 24, 14, juce::Justification::centredRight, false);
-    for (int d = 0; d < kNumCv; ++d)
-        g.drawText (kCvNames[d], jr + 22, cvInJ[d]->getBounds().getCentreY() - 7, W - jr - 30, 14, juce::Justification::centredLeft, false);
+    std::vector<int> seq { (int) NIn };                                                  // INPUT, modules du rack, OUTPUT
+    for (int n : e.getRack()) seq.push_back (n);
+    seq.push_back ((int) NOut);
+    uint32_t activeSrc = 0;
+    for (int n : seq) if (n != NOut) activeSrc |= 1u << n;
 
     // cablage par defaut (normalise) : traits pointilles tant que l'entree n'est pas cablee
-    uint32_t activeSrc = 0;
-    for (const auto& r : rows) if (r.node != NOut) activeSrc |= 1u << r.node;
     const float dashes[2] { 4.f, 4.f };
-    for (size_t i = 1; i < rows.size(); ++i)
+    for (size_t i = 1; i < seq.size(); ++i)
     {
-        const int nd = rows[i].node, prev = rows[i - 1].node;
-        if (proc.engine.audioIn[nd].load() & activeSrc) continue;
+        const int nd = seq[i], prev = seq[i - 1];
+        if ((e.audioIn[nd].load() & activeSrc) != 0 || ! usable (audioOutJ[prev]) || ! usable (audioInJ[nd])) continue;
         juce::Path line, dashed;
-        line.startNewSubPath (audioOutJ[prev]->socketCentre());
-        line.lineTo (audioInJ[nd]->socketCentre());
+        line.startNewSubPath (centreOf (*audioOutJ[prev]));
+        line.lineTo (centreOf (*audioInJ[nd]));
         juce::PathStrokeType (1.4f).createDashedStroke (dashed, line, dashes, 2);
-        g.setColour (look::print.withAlpha (0.28f));
+        g.setColour (look::print.withAlpha (0.3f));
         g.fillPath (dashed);
     }
-}
 
-void PatchBay::paintOverChildren (juce::Graphics& g)
-{
-    drawSpecks (g, getLocalBounds());
-    auto& e = proc.engine;
-    uint32_t activeSrc = 0;
-    for (const auto& r : rows) if (r.node != NOut) activeSrc |= 1u << r.node;
-    for (const auto& r : rows)
+    auto involved = [this] (const Jack* a, const Jack* b) { return hovered != nullptr && (hovered == a || hovered == b); };
+    auto drawIf = [&] (Jack* a, Jack* b, juce::Colour col)
     {
-        if (r.node == NIn) continue;
-        const uint32_t m = e.audioIn[r.node].load() & activeSrc;
+        if (! usable (a) || ! usable (b)) return;
+        const bool hot = involved (a, b);
+        drawCable (g, centreOf (*a), centreOf (*b), col, hot ? 1.f : 0.72f, hot ? 1.2f : 0.f);
+    };
+    for (int n : seq)
+    {
+        if (n == NIn) continue;
+        const uint32_t m = e.audioIn[n].load() & activeSrc;
         for (int s = 0; s < NOut; ++s)
-            if ((m & (1u << s)) && audioOutJ[s]->isVisible())
-                drawCable (g, audioOutJ[s]->socketCentre(), audioInJ[r.node]->socketCentre(), kCablePalette[(s * 3 + r.node) % 6]);
+            if (m & (1u << s)) drawIf (audioOutJ[s], audioInJ[n], kCablePalette[(s * 3 + n) % 6]);
     }
     for (int d = 0; d < kNumCv; ++d)
     {
         const uint32_t m = e.cvIn[d].load();
         for (int s = 0; s < kNumSrc; ++s)
-            if (m & (1u << s)) drawCable (g, cvOutJ[s]->socketCentre(), cvInJ[d]->socketCentre(), kCablePalette[(s + 2 * d + 1) % 6]);
+            if (m & (1u << s)) drawIf (cvOutJ[s], cvInJ[d], kCablePalette[(s + 2 * d + 1) % 6]);
     }
     if (dragFrom != nullptr)
-        drawCable (g, dragFrom->socketCentre(), dragPos, juce::Colour (0xffe6e4da).withAlpha (0.85f));
+        drawCable (g, centreOf (*dragFrom), dragPos, juce::Colour (0xffe6e4da), 0.9f);
 }
 
 // ================================================================ module
@@ -609,15 +623,21 @@ ModuleUnit::Region ModuleUnit::regionAt (juce::Point<int> p) const
     return Handle;
 }
 
+void ModuleUnit::addJack (Jack* j, int col, int row, const juce::String& label)
+{
+    jackSlots.push_back ({ j, col, row, label });
+    jackCols = juce::jmax (jackCols, col + 1);
+}
+
 void ModuleUnit::paint (juce::Graphics& g)
 {
     const auto b = getLocalBounds().toFloat();
     drawPlate (g, b);
     g.setColour (look::print.withAlpha (0.95f));
-    g.setFont (font (12.f));
-    g.drawText (title, fixed ? 12 : 32, 3, getWidth() - 100, 18, juce::Justification::centredLeft, false);
-    g.setColour (juce::Colour (0xffc8281c));
-    g.fillRect (fixed ? 12 : 32, 22, 24, 2);
+    g.setFont (font (11.f));
+    g.drawText (title, fixed ? 12 : 32, 5, getWidth() - (fixed ? 24 : 100), 16, juce::Justification::centredLeft, false);
+    g.setColour (look::print.withAlpha (0.35f));
+    g.fillRect (fixed ? 12 : 32, 24, getWidth() - (fixed ? 24 : 100) - 12, 1);
     if (! fixed)
     {
         g.setColour (look::print.withAlpha (0.5f));                                      // poignee de deplacement
@@ -634,6 +654,19 @@ void ModuleUnit::paint (juce::Graphics& g)
         g.drawLine (xx, 8.f, xx + 10.f, 18.f, 2.f);
         g.drawLine (xx + 10.f, 8.f, xx, 18.f, 2.f);
     }
+    if (! collapsed && ! jackSlots.empty())                                              // etiquettes des prises + filet de separation
+    {
+        const int x0 = getWidth() - 10 - jackCols * 58;
+        g.setColour (look::print.withAlpha (0.3f));
+        g.fillRect (x0 - 8, 32, 1, getHeight() - 42);
+        g.setFont (font (8.f));
+        for (const auto& s : jackSlots)
+        {
+            const bool cv = s.jack->kind == JackKind::CvIn || s.jack->kind == JackKind::CvOut;
+            g.setColour (cv ? look::cvRing : look::print.withAlpha (0.9f));
+            g.drawText (s.label, x0 + s.col * 58, 34 + s.row * 38 + 28, 58, 10, juce::Justification::centred, false);
+        }
+    }
 }
 
 void ModuleUnit::paintOverChildren (juce::Graphics& g) { drawSpecks (g, getLocalBounds()); }
@@ -641,7 +674,11 @@ void ModuleUnit::paintOverChildren (juce::Graphics& g) { drawSpecks (g, getLocal
 void ModuleUnit::resized()
 {
     for (auto* c : getChildren()) c->setVisible (! collapsed);
-    if (! collapsed && layoutFn) layoutFn (getLocalBounds().withTrimmedTop (26).reduced (10, 4));
+    if (collapsed) return;
+    const int x0 = getWidth() - 10 - jackCols * 58;
+    for (const auto& s : jackSlots)
+        s.jack->setCentrePosition (x0 + s.col * 58 + 29, 34 + s.row * 38 + 14);
+    if (layoutFn) layoutFn (getLocalBounds().withTrimmedTop (28).withTrimmedBottom (4).withTrimmedLeft (10).withTrimmedRight (10 + jackStripWidth()));
 }
 
 void ModuleUnit::mouseDown (const juce::MouseEvent& e)
@@ -735,25 +772,112 @@ void RackView::dragEnd (ModuleUnit*)
 void PlatePanel::paint (juce::Graphics& g)
 {
     drawPlate (g, getLocalBounds().toFloat());
-    g.setColour (look::print.withAlpha (0.95f));
-    g.setFont (font (12.f));
-    g.drawText (title, 12, 6, getWidth() - 24, 16, juce::Justification::centredLeft, false);
-    g.setColour (juce::Colour (0xffc8281c));
-    g.fillRect (12, 24, 26, 2);
-    for (const auto& s : subtitles)
+    auto head = [&] (const juce::String& t, int y)
     {
         g.setColour (look::print.withAlpha (0.95f));
-        g.setFont (font (12.f));
-        g.drawText (s.first, 12, s.second, getWidth() - 24, 16, juce::Justification::centredLeft, false);
-        g.setColour (juce::Colour (0xffc8281c));
-        g.fillRect (12, s.second + 18, 26, 2);
+        g.setFont (font (11.f));
+        g.drawText (t, 12, y, getWidth() - 24, 16, juce::Justification::centredLeft, false);
+        g.setColour (look::print.withAlpha (0.35f));
+        g.fillRect (12, y + 19, getWidth() - 24, 1);
+    };
+    head (title, 5);
+    for (const auto& s : subtitles) head (s.first, s.second);
+}
+void PlatePanel::paintOverChildren (juce::Graphics& g)
+{
+    g.setFont (font (8.f));
+    g.setColour (look::print.withAlpha (0.9f));
+    for (const auto& n : notes)
+        g.drawText (std::get<0> (n), std::get<1> (n) - 30, std::get<2> (n), 60, 10, juce::Justification::centred, false);
+    drawSpecks (g, getLocalBounds());
+}
+
+// ================================================================ boite de dialogue integree
+OrageDialog::OrageDialog (juce::String t, juce::String m, bool askText, juce::String initialText, juce::String okText,
+                          std::function<void (bool, const juce::String&)> callback)
+    : titleText (std::move (t)), messageText (std::move (m)), hasText (askText), cb (std::move (callback))
+{
+    setWantsKeyboardFocus (true);
+    okBtn.setButtonText (okText);
+    cancelBtn.setButtonText ("ANNULER");
+    okBtn.onClick = [this] { finish (true); };
+    cancelBtn.onClick = [this] { finish (false); };
+    addAndMakeVisible (okBtn);
+    addAndMakeVisible (cancelBtn);
+    if (hasText)
+    {
+        editor.setText (initialText, false);
+        editor.setFont (font (16.f));
+        editor.setSelectAllWhenFocused (true);
+        editor.setIndents (8, 6);
+        editor.onReturnKey = [this] { finish (true); };
+        editor.onEscapeKey = [this] { finish (false); };
+        addAndMakeVisible (editor);
     }
 }
-void PlatePanel::paintOverChildren (juce::Graphics& g) { drawSpecks (g, getLocalBounds()); }
+
+void OrageDialog::focus()
+{
+    if (hasText) editor.grabKeyboardFocus(); else grabKeyboardFocus();
+}
+
+bool OrageDialog::keyPressed (const juce::KeyPress& k)
+{
+    if (k == juce::KeyPress::escapeKey) { finish (false); return true; }
+    if (k == juce::KeyPress::returnKey) { finish (true); return true; }
+    return true;                                                      // modal : rien ne passe a travers
+}
+
+void OrageDialog::finish (bool ok)
+{
+    if (done) return;
+    done = true;
+    const auto text = editor.getText();
+    setVisible (false);
+    if (cb) cb (ok, text);
+    if (onFinished) onFinished();
+}
+
+void OrageDialog::resized()
+{
+    const int w = 520, h = hasText ? 230 : 200;
+    box = juce::Rectangle<int> (w, h).withCentre (getLocalBounds().getCentre());
+    if (hasText) editor.setBounds (box.getX() + 28, box.getY() + 96, w - 56, 34);
+    cancelBtn.setBounds (box.getRight() - 28 - 140 - 10 - 140, box.getBottom() - 28 - 34, 140, 34);
+    okBtn.setBounds (box.getRight() - 28 - 140, box.getBottom() - 28 - 34, 140, 34);
+}
+
+void OrageDialog::paint (juce::Graphics& g)
+{
+    g.fillAll (juce::Colours::black.withAlpha (0.62f));
+    const auto b = box.toFloat();
+    g.setColour (juce::Colours::black.withAlpha (0.55f));
+    g.fillRect (b.translated (4.f, 6.f));
+    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1c1c1f), 0.f, b.getY(), juce::Colour (0xff0d0d0f), 0.f, b.getBottom(), false));
+    g.fillRect (b);
+    g.setColour (look::print.withAlpha (0.8f));
+    g.drawRect (b, 1.6f);
+    g.drawRect (b.reduced (6.f), 0.8f);
+    for (auto p : { juce::Point<float> (b.getX() + 15.f, b.getY() + 15.f), { b.getRight() - 15.f, b.getY() + 15.f },
+                    { b.getX() + 15.f, b.getBottom() - 15.f }, { b.getRight() - 15.f, b.getBottom() - 15.f } })
+    {
+        g.setColour (juce::Colour (0xff8a8a90)); g.fillEllipse (p.x - 4.f, p.y - 4.f, 8.f, 8.f);
+        g.setColour (juce::Colour (0xff2a2a2d)); g.drawLine (p.x - 3.f, p.y - 1.f, p.x + 3.f, p.y + 1.f, 1.2f);
+    }
+    g.setColour (look::print);
+    g.setFont (font (16.f));
+    g.drawText (titleText, box.getX() + 32, box.getY() + 22, box.getWidth() - 64, 22, juce::Justification::centredLeft, false);
+    g.setColour (juce::Colour (0xffc8281c));
+    g.fillRect (box.getX() + 32, box.getY() + 48, 60, 3);
+    g.setColour (look::print.withAlpha (0.9f));
+    g.setFont (font (13.f, false));
+    g.drawFittedText (messageText, box.getX() + 32, box.getY() + 60, box.getWidth() - 64, hasText ? 30 : 70, juce::Justification::topLeft, 3);
+    drawSpecks (g, box);
+}
 
 // ================================================================ editeur
-OrageAudioProcessorEditor::OrageAudioProcessorEditor (OrageAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), patchBay (p)
+OrageAudioProcessorEditor::OrageAudioProcessorEditor (OrageAudioProcessor& p, juce::String title, juce::String subtitle)
+    : AudioProcessorEditor (&p), proc (p), titleText (std::move (title)), subText (std::move (subtitle)), patchBay (p)
 {
     setLookAndFeel (&laf);
 
@@ -769,11 +893,16 @@ OrageAudioProcessorEditor::OrageAudioProcessorEditor (OrageAudioProcessor& p)
     viewport.setScrollBarThickness (10);
     addAndMakeVisible (viewport);
     addAndMakeVisible (side);
-    addAndMakeVisible (patchBay);
 
     buildUnits();
 
-    setSize (1400, 900);
+    addAndMakeVisible (cablesBtn);                                  // le calque des cables passe par-dessus tout
+    cablesBtn.setButtonText ("CABLES");
+    cablesBtn.setToggleState (true, juce::dontSendNotification);
+    cablesBtn.onClick = [this] { patchBay.cablesVisible = cablesBtn.getToggleState(); patchBay.repaint(); };
+    addAndMakeVisible (patchBay);
+
+    setSize (1240, 900);
     refreshRack();
     startTimerHz (30);
 }
@@ -808,6 +937,7 @@ ModuleUnit* OrageAudioProcessorEditor::newUnit (int node, const juce::String& ti
 
 void OrageAudioProcessorEditor::buildUnits()
 {
+    constexpr int kModH = 150, kCell = 108;
     auto addSelector = [this] (juce::Component& parent, const char* id, const juce::StringArray& names)
     {
         auto sel = std::make_unique<SegmentSelector> (proc.apvts, id, names);
@@ -842,12 +972,24 @@ void OrageAudioProcessorEditor::buildUnits()
     auto place = [] (juce::Rectangle<int> r, std::vector<KnobUnit*> ks, int x0, int cellW)
     {
         int x = r.getX() + x0;
-        for (auto* k : ks) { k->setBounds (x, r.getY(), cellW, r.getHeight()); x += cellW; }
+        const int kh = juce::jmin (r.getHeight(), cellW + 22), y = r.getY() + (r.getHeight() - kh) / 2;
+        for (auto* k : ks) { k->setBounds (x, y, cellW, kh); x += cellW; }
+    };
+    // prises : audio IN / OUT en colonne 0, entrees CV en colonne 1
+    auto audioJacks = [this] (ModuleUnit* u, int node)
+    {
+        u->addJack (patchBay.makeJack (*u, JackKind::AudioIn, node), 0, 0, "IN");
+        u->addJack (patchBay.makeJack (*u, JackKind::AudioOut, node), 0, 1, "OUT");
+    };
+    auto cvJack = [this] (ModuleUnit* u, int dst, int row, const char* label)
+    {
+        u->addJack (patchBay.makeJack (*u, JackKind::CvIn, dst), 1, row, label);
     };
 
     // ---------------- modules du rack
     {   // GATE
-        auto* u = newUnit (NGate, "NOISE GATE", 128, false);
+        auto* u = newUnit (NGate, "NOISE GATE", kModH, false);
+        audioJacks (u, NGate);
         auto* a = mk (*u, "gateThresh", "THRESHOLD");
         auto* b = mk (*u, "gateRel", "RELEASE");
         auto* c = mk (*u, "gateRange", "RANGE");
@@ -856,37 +998,45 @@ void OrageAudioProcessorEditor::buildUnits()
         u->addAndMakeVisible (*lamp);
         owned.push_back (std::move (lamp));
         auto* lp = gateLamp;
-        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c }, 0, 92); lp->setBounds (r.getX() + 300, r.getY() + 22, 50, 40); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c }, 0, kCell); lp->setBounds (r.getX() + 3 * kCell + 20, r.getCentreY() - 24, 56, 44); };
     }
     {   // OCTAVER
-        auto* u = newUnit (NOct, "OCTAVER", 128, false);
+        auto* u = newUnit (NOct, "OCTAVER", kModH, false);
+        audioJacks (u, NOct);
         auto* sel = addSelector (*u, "octMode", juce::StringArray { "OFF", "DOWN", "UP", "BOTH" });
         auto* dose = mk (*u, "octAmt", "DOSE");
-        u->layoutFn = [=] (juce::Rectangle<int> r) { sel->setBounds (r.getX(), r.getCentreY() - 16, 240, 32); dose->setBounds (r.getX() + 260, r.getY(), 90, r.getHeight()); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { sel->setBounds (r.getX(), r.getCentreY() - 18, 280, 36); dose->setBounds (r.getX() + 300, r.getY() + 2, kCell, r.getHeight() - 4); };
     }
     {   // DISTORSION
-        auto* u = newUnit (NDist, "DISTORSION", 128, false);
+        auto* u = newUnit (NDist, "DISTORSION", kModH, false);
+        audioJacks (u, NDist);
+        cvJack (u, CvDrive, 0, "DRIVE"); cvJack (u, CvClip, 1, "CLIP"); cvJack (u, CvUnc, 2, "UNCERT.");
         juce::StringArray mats; mats.add ("GERMANIUM"); mats.add ("LAMPE"); mats.add (fr ("X" "\xc3\x89" "NON"));
         auto* sel = addSelector (*u, "material", mats);
         auto* a = mk (*u, "power", "PUISSANCE", "0", "10", CvDrive);
         auto* b = mk (*u, "clip", fr ("\xc3\x89" "CR" "\xc3\x8a" "TAGE"), "0", "10", CvClip);
         auto* c = mk (*u, "unc", "INCERTITUDE", "0", "10", CvUnc);
         auto* d = mk (*u, "lightning", "FOUDRE");
-        u->layoutFn = [=] (juce::Rectangle<int> r) { sel->setBounds (r.getX(), r.getCentreY() - 16, 290, 32); place (r, { a, b, c, d }, 310, 92); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { sel->setBounds (r.getX(), r.getCentreY() - 18, 270, 36); place (r, { a, b, c, d }, 290, kCell - 8); };
     }
     {   // COLOR
-        auto* u = newUnit (NColor, "COLOR", 128, false);
+        auto* u = newUnit (NColor, "COLOR", kModH, false);
+        audioJacks (u, NColor);
         auto* a = mk (*u, "low", "LOW", "-12", "+12"); auto* b = mk (*u, "mid", "MID", "-12", "+12"); auto* c = mk (*u, "high", "HI", "-12", "+12");
-        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c }, 0, 92); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c }, 0, kCell); };
     }
     {   // FILTER
-        auto* u = newUnit (NFilter, "FILTER  HPF > LPF", 128, false);
+        auto* u = newUnit (NFilter, "FILTER  HPF > LPF", kModH, false);
+        audioJacks (u, NFilter);
+        cvJack (u, CvHpf, 0, "HPF"); cvJack (u, CvLpf, 1, "LPF"); cvJack (u, CvPeak, 2, "PEAK");
         auto* a = mk (*u, "hpf", "HPF CUTOFF", "0", "10", CvHpf);   auto* b = mk (*u, "hpfPeak", "PEAK", "0", "10", CvPeak);
         auto* c = mk (*u, "lpf", "LPF CUTOFF", "0", "10", CvLpf);   auto* d = mk (*u, "lpfPeak", "PEAK", "0", "10", CvPeak);
-        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c, d }, 0, 92); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c, d }, 0, kCell); };
     }
     {   // DESTROY MACHINE
-        auto* u = newUnit (NDestroy, "DESTROY MACHINE", 128, false);
+        auto* u = newUnit (NDestroy, "DESTROY MACHINE", kModH, false);
+        audioJacks (u, NDestroy);
+        cvJack (u, CvDestroy, 0, "AMOUNT"); cvJack (u, CvDRate, 1, "RATE");
         auto* a = mk (*u, "destroy", "AMOUNT", "0", "10", CvDestroy);
         auto* b = mk (*u, "dRate", "RATE", "0", "10", CvDRate);
         auto* c = mk (*u, "dGrain", "GRAIN");
@@ -898,13 +1048,14 @@ void OrageAudioProcessorEditor::buildUnits()
         for (const auto& x : t) tg.push_back (addToggle (*u, x.id, x.label));
         u->layoutFn = [=] (juce::Rectangle<int> r)
         {
-            place (r, { a, b, c }, 0, 92);
-            sync->setBounds (r.getX() + 292, r.getY() + 28, 112, 26);
-            for (size_t i = 0; i < tg.size(); ++i) tg[i]->setBounds (r.getX() + 424 + (int) (i % 3) * 126, r.getY() + 10 + (int) (i / 3) * 40, 122, 34);
+            place (r, { a, b, c }, 0, kCell - 12);
+            sync->setBounds (r.getX() + 330, r.getCentreY() - 13, 110, 26);
+            for (size_t i = 0; i < tg.size(); ++i) tg[i]->setBounds (r.getX() + 456 + (int) (i % 3) * 124, r.getY() + 14 + (int) (i / 3) * 44, 120, 36);
         };
     }
     {   // COMP : type, amount, threshold, attack, vumeter
-        auto* u = newUnit (NComp, "TUBE COMP", 128, false);
+        auto* u = newUnit (NComp, "TUBE COMP", kModH, false);
+        audioJacks (u, NComp);
         auto* sel = addSelector (*u, "compType", juce::StringArray { "OFF", "EAR 660", "FAIRCHILD" });
         auto* a = mk (*u, "compAmt", "COMP");
         auto* b = mk (*u, "compThresh", "THRESHOLD");
@@ -916,46 +1067,55 @@ void OrageAudioProcessorEditor::buildUnits()
         auto* mp = vu;
         u->layoutFn = [=] (juce::Rectangle<int> r)
         {
-            sel->setBounds (r.getX(), r.getCentreY() - 16, 250, 32);
-            place (r, { a, b, c }, 264, 88);
-            mp->setBounds (r.getX() + 544, r.getY() + 2, 150, r.getHeight() - 4);
+            sel->setBounds (r.getX(), r.getCentreY() - 18, 230, 36);
+            place (r, { a, b, c }, 244, 90);
+            mp->setBounds (r.getX() + 530, r.getY() + 2, 170, r.getHeight() - 4);
         };
     }
     {   // SPRING
-        auto* u = newUnit (NSpring, "SPRING REVERB", 128, false);
+        auto* u = newUnit (NSpring, "SPRING REVERB", kModH, false);
+        audioJacks (u, NSpring);
+        cvJack (u, CvSpring, 0, "MIX");
         auto* a = mk (*u, "springMix", "MIX", "0", "10", CvSpring); auto* b = mk (*u, "springDecay", "DECAY"); auto* c = mk (*u, "springDrip", "DRIP");
-        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c }, 0, 92); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { place (r, { a, b, c }, 0, kCell); };
     }
 
-    // ---------------- bandeau de modulation (fixe)
-    auto strip = [&] (const char* title, const char* prefix, bool hasSync)
+    // ---------------- bandeau de modulation (fixe) : sources CV a droite de chaque module
+    auto strip = [&] (const char* title, const char* prefix, int srcIdx, bool hasSync)
     {
         auto* u = newUnit (-1, title, 172, true);
+        u->addJack (patchBay.makeJack (*u, JackKind::CvOut, srcIdx), 0, 0, "OUT");
         const juce::String pre (prefix);
         auto* rate  = mk (*u, (pre + "Rate").toRawUTF8(), "RATE");
         auto* shape = mk (*u, (pre + (pre == "sh" ? "Slew" : "Shape")).toRawUTF8(), pre == "sh" ? "SLEW" : "SHAPE", pre == "sh" ? "0" : "SIN", pre == "sh" ? "10" : "SQR");
         auto* level = mk (*u, (pre + "Level").toRawUTF8(), "LEVEL");
         juce::ComboBox* sync = hasSync ? addSync (*u, (pre + "Sync").toRawUTF8(), rate) : nullptr;
+        if (pre == "sh")
+        {
+            u->addJack (patchBay.makeJack (*u, JackKind::CvIn, CvShIn), 0, 1, "SIGNAL IN");
+            u->addJack (patchBay.makeJack (*u, JackKind::CvIn, CvShClk), 0, 2, "CLOCK IN");
+        }
         u->layoutFn = [=] (juce::Rectangle<int> r)
         {
-            if (sync != nullptr) sync->setBounds (r.getX(), r.getY(), r.getWidth(), 24);
-            auto k = r.withTrimmedTop (28);
+            if (sync != nullptr) sync->setBounds (r.getX(), r.getY() + 2, r.getWidth(), 24);
+            auto k = r.withTrimmedTop (30);
             const int cw = k.getWidth() / 3;
             rate->setBounds (k.getX(), k.getY(), cw, k.getHeight());
             shape->setBounds (k.getX() + cw, k.getY(), cw, k.getHeight());
             level->setBounds (k.getX() + 2 * cw, k.getY(), cw, k.getHeight());
         };
     };
-    strip ("LFO 1", "lfo1", true);
-    strip ("LFO 2", "lfo2", true);
-    strip ("SAMPLE & HOLD", "sh", true);
+    strip ("LFO 1", "lfo1", SrcLfo1, true);
+    strip ("LFO 2", "lfo2", SrcLfo2, true);
+    strip ("SAMPLE & HOLD", "sh", SrcSh, true);
     {   // ENVELOPE FOLLOWER
         auto* u = newUnit (-1, "ENVELOPE FOLLOWER", 172, true);
+        u->addJack (patchBay.makeJack (*u, JackKind::CvOut, SrcEnv), 0, 0, "OUT");
         auto* a = mk (*u, "envRel", "RELEASE"); auto* b = mk (*u, "envLevel", "LEVEL");
-        u->layoutFn = [=] (juce::Rectangle<int> r) { a->setBounds (r.getX(), r.getY() + 28, r.getWidth() / 2, r.getHeight() - 28); b->setBounds (r.getX() + r.getWidth() / 2, r.getY() + 28, r.getWidth() / 2, r.getHeight() - 28); };
+        u->layoutFn = [=] (juce::Rectangle<int> r) { a->setBounds (r.getX(), r.getY() + 30, r.getWidth() / 2, r.getHeight() - 30); b->setBounds (r.getX() + r.getWidth() / 2, r.getY() + 30, r.getWidth() / 2, r.getHeight() - 30); };
     }
 
-    // ---------------- panneau lateral : tuiles de modules + master + remises a zero
+    // ---------------- panneau lateral : tuiles de modules + master + remises a zero + entree/sortie
     static const int tileNodes[] = { NOct, NDist, NColor, NFilter, NDestroy, NComp, NSpring, NGate };
     for (int n : tileNodes)
     {
@@ -967,8 +1127,15 @@ void OrageAudioProcessorEditor::buildUnits()
     }
     side.subtitles.push_back ({ "MASTER", 254 });
     side.subtitles.push_back ({ "RESET", 512 });
+    side.subtitles.push_back ({ "I/O", 640 });
+    side.notes.emplace_back ("INPUT", 34, 698);
+    side.notes.emplace_back ("OUTPUT", 104, 698);
+    side.notes.emplace_back ("MIX CV", 34, 746);
+    jackIn  = patchBay.makeJack (side, JackKind::AudioOut, NIn);
+    jackOut = patchBay.makeJack (side, JackKind::AudioIn, NOut);
+    jackMix = patchBay.makeJack (side, JackKind::CvIn, CvMix);
     mk (side, "mix", "DRY / WET", "DRY", "WET", CvMix);
-    mk (side, "output", "OUTPUT", "-24", "+12");
+    mk (side, "output", "OUTPUT", "-", "+");
     mk (side, "chaos", "CHAOS");
     side.addAndMakeVisible (foot);
     footAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (proc.apvts, "on", foot);
@@ -981,16 +1148,16 @@ void OrageAudioProcessorEditor::buildUnits()
     clearPatchBtn.setButtonText ("VIDER LE PATCHBAY");
     resetBtn.setButtonText (fr ("RESET R\xc3\x89" "GLAGES"));
     for (auto* b : { &clearRackBtn, &clearPatchBtn, &resetBtn }) side.addAndMakeVisible (*b);
-    clearRackBtn.onClick  = [this] { confirm ("Vider le rack", "Retirer tous les modules du rack ? (les reglages sont conserves)", [this] { proc.clearRack(); refreshRack(); }); };
-    clearPatchBtn.onClick = [this] { confirm ("Vider le patchbay", "Retirer tous les cables du patchbay ?", [this] { proc.clearPatchbay(); patchBay.repaint(); }); };
-    resetBtn.onClick      = [this] { confirm ("Reset des reglages", "Remettre tous les reglages des modules a leur valeur par defaut ? (rack et cables conserves)", [this] { proc.resetModules(); }); };
+    clearRackBtn.onClick  = [this] { confirm ("VIDER LE RACK", fr ("Retirer tous les modules du rack ?\nLes r\xc3\xa9" "glages sont conserv\xc3\xa9s."), [this] { proc.clearRack(); refreshRack(); }); };
+    clearPatchBtn.onClick = [this] { confirm ("VIDER LE PATCHBAY", "Retirer tous les cables du patchbay ?", [this] { proc.clearPatchbay(); patchBay.repaint(); }); };
+    resetBtn.onClick      = [this] { confirm (fr ("RESET DES R\xc3\x89" "GLAGES"), fr ("Remettre tous les r\xc3\xa9" "glages des modules \xc3\xa0 leur valeur par d\xc3\xa9" "faut ?\nLe rack et les c\xc3\xa2" "bles sont conserv\xc3\xa9s."), [this] { proc.resetModules(); }); };
 }
 
 // ---------------------------------------------------------------- rack <-> moteur
 void OrageAudioProcessorEditor::rackChangedByUser (const std::vector<int>& newOrder)
 {
     proc.engine.setRack (newOrder);
-    patchBay.layoutRows();
+    patchBay.repaint();
 }
 
 void OrageAudioProcessorEditor::refreshRack()
@@ -1004,7 +1171,7 @@ void OrageAudioProcessorEditor::refreshRack()
     rackView.setUnits (list);
     static const int tileNodes[] = { NOct, NDist, NColor, NFilter, NDestroy, NComp, NSpring, NGate };
     for (size_t i = 0; i < tiles.size(); ++i) tiles[i]->setToggleState (proc.engine.inRack (tileNodes[i]), juce::dontSendNotification);
-    patchBay.layoutRows();
+    patchBay.repaint();
     lastRackHash = 0;
     for (auto& s : proc.engine.rackSlot) lastRackHash = lastRackHash * 31u + (uint32_t) (s.load() + 2);
 }
@@ -1074,28 +1241,34 @@ void OrageAudioProcessorEditor::presetMenu()
     });
 }
 
+void OrageAudioProcessorEditor::showDialog (const juce::String& title, const juce::String& message, bool askText, const juce::String& initial,
+                                            const juce::String& okText, std::function<void (bool, const juce::String&)> cb)
+{
+    juce::Component* host = dialogHost != nullptr ? dialogHost : this;
+    dialog = std::make_unique<OrageDialog> (title, message, askText, initial, okText, std::move (cb));
+    juce::Component::SafePointer<OrageAudioProcessorEditor> safe (this);
+    dialog->onFinished = [safe]
+    {
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->dialog.reset(); });
+    };
+    host->addAndMakeVisible (*dialog);
+    dialog->setBounds (host->getLocalBounds());
+    dialog->toFront (true);
+    dialog->focus();
+}
+
 void OrageAudioProcessorEditor::saveDialog()
 {
-    auto* w = new juce::AlertWindow ("Sauvegarder le preset", "Nom du preset :", juce::MessageBoxIconType::NoIcon);
-    w->addTextEditor ("name", proc.presetName);
-    w->addButton ("Sauvegarder", 1, juce::KeyPress (juce::KeyPress::returnKey));
-    w->addButton ("Annuler", 0, juce::KeyPress (juce::KeyPress::escapeKey));
     juce::Component::SafePointer<OrageAudioProcessorEditor> safe (this);
-    w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int r)
+    showDialog ("SAUVEGARDER LE PRESET", "Nom du preset :", true, proc.presetName, "SAUVEGARDER", [safe] (bool ok, const juce::String& text)
     {
-        if (r == 1 && safe != nullptr)
-        {
-            safe->proc.saveUserPreset (w->getTextEditorContents ("name"));
-            safe->afterPreset();
-        }
-    }), true);
+        if (ok && safe != nullptr) { safe->proc.saveUserPreset (text); safe->afterPreset(); }
+    });
 }
 
 void OrageAudioProcessorEditor::confirm (const juce::String& title, const juce::String& message, std::function<void()> action)
 {
-    juce::Component::SafePointer<OrageAudioProcessorEditor> safe (this);
-    const auto opts = juce::MessageBoxOptions::makeOptionsOkCancel (juce::MessageBoxIconType::QuestionIcon, title, message, "OK", "Annuler", this);
-    juce::AlertWindow::showAsync (opts, [safe, action] (int r) { if (r == 1 && safe != nullptr) action(); });
+    showDialog (title, message, false, {}, "OK", [action] (bool ok, const juce::String&) { if (ok) action(); });
 }
 
 void OrageAudioProcessorEditor::rollTheDice()
@@ -1132,7 +1305,7 @@ void OrageAudioProcessorEditor::timerCallback()
     if (vu != nullptr)       { vu->setValue (proc.engine.compGr.load()); vu->tick(); }
     if (gateLamp != nullptr) gateLamp->set (proc.engine.gateLed.load() > 0.5f);
 
-    const uint32_t h = patchBay.patchHash();
+    const uint32_t h = patchBay.stateHash();                                  // cables : on ne redessine que si quelque chose a bouge
     if (h != lastPatchHash) { lastPatchHash = h; patchBay.repaint(); }
     for (auto& k : knobs)
         if (k->cvIndex >= 0) k->setCvActive (proc.engine.cvIn[k->cvIndex].load() != 0);
@@ -1161,26 +1334,29 @@ void OrageAudioProcessorEditor::resized()
     headerArea = { 0, 0, W, 108 };
 
     // ---- en-tete : presets
-    prevBtn.setBounds (900, 40, 30, 28);
-    nameBtn.setBounds (936, 40, 250, 28);
-    nextBtn.setBounds (1192, 40, 30, 28);
-    saveBtn.setBounds (1230, 40, 70, 28);
+    prevBtn.setBounds (W - 400, 40, 30, 28);
+    nameBtn.setBounds (W - 364, 40, 220, 28);
+    nextBtn.setBounds (W - 140, 40, 30, 28);
+    saveBtn.setBounds (W - 104, 40, 70, 28);
+    cablesBtn.setBounds (W - 140, 76, 108, 24);
 
-    // ---- colonnes
+    // ---- colonnes : panneau lateral | rack | (bandeau de modulation en bas)
+    const int vpW = W - 170;
     side.setBounds (10, 118, 140, H - 128);
-    viewport.setBounds (160, 118, 880, H - 118 - 8 - 172 - 8);
+    viewport.setBounds (160, 118, vpW, H - 118 - 8 - 172 - 8);
     rackView.setSize (viewport.getMaximumVisibleWidth(), juce::jmax (90, rackView.getHeight()));
-    patchBay.setBounds (1050, 118, W - 1050 - 10, H - 128);
+    patchBay.setBounds (getLocalBounds());
+    patchBay.toFront (false);
 
     // ---- bandeau de modulation
     {
         const int y = H - 8 - 172, gap = 8;
-        const float weights[4] { 3.f, 3.f, 3.f, 2.f };
-        const int usable = 880 - 3 * gap;
+        const float weights[4] { 3.f, 3.f, 3.f, 2.6f };
+        const int usable = vpW - 3 * gap;
         int x = 160;
         for (size_t i = 0; i < stripUnits.size() && i < 4; ++i)
         {
-            const int w = juce::roundToInt ((float) usable * weights[i] / 11.f);
+            const int w = juce::roundToInt ((float) usable * weights[i] / 11.6f);
             stripUnits[i]->setBounds (x, y, w, 172);
             x += w + gap;
         }
@@ -1196,6 +1372,9 @@ void OrageAudioProcessorEditor::resized()
     clearRackBtn.setBounds (8, 536, 124, 26);
     clearPatchBtn.setBounds (8, 568, 124, 26);
     resetBtn.setBounds (8, 600, 124, 26);
+    jackIn->setCentrePosition (34, 680);
+    jackOut->setCentrePosition (104, 680);
+    jackMix->setCentrePosition (34, 728);
 
     // ---- texture de la facade (metal peint en noir, use) + serigraphies de l'en-tete
     panelTex = juce::Image (juce::Image::RGB, W, H, false);
@@ -1234,16 +1413,16 @@ void OrageAudioProcessorEditor::resized()
 
     g.setColour (look::print.withAlpha (0.93f));
     g.setFont (font (50.f));
-    g.drawText ("ORAGE FX", 30, 6, 340, 58, juce::Justification::centredLeft, false);
+    g.drawText (titleText, 30, 6, 340, 58, juce::Justification::centredLeft, false);
     g.setColour (juce::Colour (0xffc8281c));
     g.fillRect (32, 66, 180, 4);
     g.setColour (look::print.withAlpha (0.85f));
     g.setFont (font (10.5f));
-    g.drawText ("SEMI-MODULAR HIGH VOLTAGE DISTORTION", 32, 76, 360, 14, juce::Justification::centredLeft, false);
+    g.drawText (subText, 32, 76, 380, 14, juce::Justification::centredLeft, false);
     g.setFont (font (9.f, false));
     g.drawText ("FOUDRE AUDIO  -  PATCH IT. BREAK IT.", 32, 91, 360, 12, juce::Justification::centredLeft, false);
     g.setFont (font (9.5f));
-    g.drawText ("PRESET", 900, 24, 80, 13, juce::Justification::centredLeft, false);
+    g.drawText ("PRESET", W - 400, 24, 80, 13, juce::Justification::centredLeft, false);
 
     const juce::Point<float> screws[] = { { 16.f, 16.f }, { (float) W - 16.f, 16.f }, { 16.f, (float) H - 16.f }, { (float) W - 16.f, (float) H - 16.f } };
     for (auto p : screws)

@@ -1,6 +1,10 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "Engine.h"
+#ifndef ORAGE_SYNTH
+ #define ORAGE_SYNTH 0
+#endif
+#include "Synth.h"
 
 class OrageAudioProcessor : public juce::AudioProcessor
 {
@@ -16,8 +20,13 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
+    #if ORAGE_SYNTH
+    const juce::String getName() const override { return "Orage"; }
+    bool acceptsMidi() const override  { return true; }
+#else
     const juce::String getName() const override { return "Orage FX"; }
     bool acceptsMidi() const override  { return false; }
+#endif
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 4.0; }
@@ -47,12 +56,16 @@ public:
     void setParamReal (const char* id, float realValue);
 
     juce::AudioProcessorValueTreeState apvts;
+    juce::MidiKeyboardState keyboardState;  // clavier a l'ecran (version instrument)
+    orage::Synth synth;                     // utilise seulement par la version instrument (ORAGE_SYNTH)
     orage::Engine engine;                   // rack + patchbay vivent ici ; l'editeur les lit et les modifie
     juce::String presetName { "Init" };
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     orage::Params readParams() const;
+    orage::SynthParams readSynth() const;
+    std::vector<std::atomic<float>*> rawSyn;
     juce::ValueTree captureState();
     void applyState (juce::ValueTree state);
 

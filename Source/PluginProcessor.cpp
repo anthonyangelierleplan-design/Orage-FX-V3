@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "SynthEditor.h"
 
 namespace
 {
@@ -67,6 +68,64 @@ constexpr int kNumDefs = (int) (sizeof (kDefs) / sizeof (kDefs[0]));
 
 // ---- presets d'usine
 using namespace orage;
+#if ORAGE_SYNTH
+
+// ---------------------------------------------------------------- parametres du synthe (version instrument)
+struct SynDef { juce::String id, name; float mn, mx, def; Kind kind; juce::String choices; };
+const std::vector<SynDef>& synDefs()
+{
+    static const std::vector<SynDef> defs = []
+    {
+        std::vector<SynDef> v;
+        auto F = [&v] (const juce::String& id, const juce::String& nm, float mn, float mx, float d) { v.push_back ({ id, nm, mn, mx, d, kFloat, {} }); };
+        auto B = [&v] (const juce::String& id, const juce::String& nm, bool d) { v.push_back ({ id, nm, 0, 1, d ? 1.f : 0.f, kBool, {} }); };
+        auto C = [&v] (const juce::String& id, const juce::String& nm, const juce::String& ch, int d) { v.push_back ({ id, nm, 0, 0, (float) d, kChoice, ch }); };
+        const juce::String waves ("Saw|Pulse|Triangle"), octs ("-2|-1|0|+1|+2");
+        C ("s_wave1", "VCO1 Wave", waves, 0);  C ("s_oct1", "VCO1 Octave", octs, 2);
+        C ("s_wave2", "VCO2 Wave", waves, 0);  C ("s_oct2", "VCO2 Octave", octs, 2);
+        F ("s_tune2", "VCO2 Tune", -12, 12, 0);  F ("s_fine2", "VCO2 Fine", -100, 100, 0);
+        F ("s_pw1", "VCO1 PW", 0, 1, 0.5f);  F ("s_pw2", "VCO2 PW", 0, 1, 0.5f);
+        B ("s_sync", "Hard Sync", false);  F ("s_fm", "FM", 0, 1, 0);  F ("s_ring", "Ring Mod", 0, 1, 0);
+        F ("s_lvl1", "VCO1 Level", 0, 1, 0.8f);  F ("s_lvl2", "VCO2 Level", 0, 1, 0);  F ("s_noise", "Noise", 0, 1, 0);
+        F ("s_glide", "Glide", 0, 1, 0);
+        F ("s_hpf", "Syn HPF", 0, 1, 0);  F ("s_hpfRes", "Syn HPF Peak", 0, 1, 0);
+        F ("s_lpf", "Syn LPF", 0, 1, 0.7f);  F ("s_lpfRes", "Syn LPF Peak", 0, 1, 0.25f);
+        F ("s_fltEnv", "Filter Env Amt", 0, 1, 0.3f);  F ("s_key", "Key Track", 0, 1, 0.5f);  F ("s_drive", "Drive", 0, 1, 0.2f);
+        F ("s_aA", "Amp A", 0, 1, 0.1f);  F ("s_aD", "Amp D", 0, 1, 0.4f);  F ("s_aS", "Amp S", 0, 1, 0.8f);  F ("s_aR", "Amp R", 0, 1, 0.35f);
+        F ("s_fA", "Flt A", 0, 1, 0.1f);  F ("s_fD", "Flt D", 0, 1, 0.45f);  F ("s_fS", "Flt S", 0, 1, 0.2f);  F ("s_fR", "Flt R", 0, 1, 0.35f);
+        F ("s_master", "Synth Master", 0, 1, 0.7f);
+        juce::StringArray divs; for (auto* d : kLfoDivNames) divs.add (d);
+        for (int i = 1; i <= kLfos; ++i)
+        {
+            const juce::String p ("s_l" + juce::String (i));
+            F (p + "Rate", "LFO" + juce::String (i) + " Rate", 0, 1, 0.4f);  C (p + "Wave", "LFO" + juce::String (i) + " Wave", "Sine|Triangle|Saw|Square|S&H", 0);
+            F (p + "Slew", "LFO" + juce::String (i) + " Slew", 0, 1, 0);  F (p + "Fade", "LFO" + juce::String (i) + " Fade", 0, 1, 0);
+            C (p + "Sync", "LFO" + juce::String (i) + " Sync", divs.joinIntoString ("|"), 0);  B (p + "Trig", "LFO" + juce::String (i) + " Retrig", false);
+        }
+        for (int i = 1; i <= kMacros; ++i) F ("s_m" + juce::String (i), "Macro " + juce::String (i), 0, 1, 0);
+        juce::StringArray srcs, dsts; for (auto* s : kModSrcNames) srcs.add (s); for (auto* s : kModDstNames) dsts.add (s);
+        for (int i = 1; i <= kSlots; ++i)
+        {
+            const juce::String p ("s_slot" + juce::String (i)), n ("Mod " + juce::String (i));
+            C (p + "Src", n + " Source", srcs.joinIntoString ("|"), 0);  C (p + "Dst", n + " Dest", dsts.joinIntoString ("|"), 0);
+            F (p + "Amt", n + " Amount", -1, 1, 0);
+        }
+        return v;
+    }();
+    return defs;
+}
+void addSynthParams (juce::AudioProcessorValueTreeState::ParameterLayout& l)
+{
+    for (const auto& d : synDefs())
+    {
+        const juce::ParameterID pid { d.id, 1 };
+        if (d.kind == kBool)        l.add (std::make_unique<juce::AudioParameterBool> (pid, d.name, d.def > 0.5f));
+        else if (d.kind == kChoice) l.add (std::make_unique<juce::AudioParameterChoice> (pid, d.name, juce::StringArray::fromTokens (d.choices, "|", ""), (int) d.def));
+        else                        l.add (std::make_unique<juce::AudioParameterFloat> (pid, d.name, juce::NormalisableRange<float> (d.mn, d.mx, 0.001f), d.def));
+    }
+}
+#endif
+
 struct Factory { const char* name; void (*apply) (OrageAudioProcessor&); };
 
 void fInit (OrageAudioProcessor&) {}
@@ -108,8 +167,46 @@ void fGated (OrageAudioProcessor& p)
     p.setParamReal ("gateThresh", 0.45f); p.setParamReal ("gateRel", 0.2f); p.setParamReal ("gateRange", 1.f);
     p.setParamReal ("compType", 1); p.setParamReal ("compAmt", 0.7f); p.setParamReal ("compThresh", 0.55f); p.setParamReal ("compAtt", 0.3f);
 }
+#if ORAGE_SYNTH
+
+void sLead (OrageAudioProcessor& p)
+{
+    p.setParamReal ("s_wave1", 0); p.setParamReal ("s_wave2", 0); p.setParamReal ("s_sync", 1); p.setParamReal ("s_tune2", 7);
+    p.setParamReal ("s_lvl1", 0.7f); p.setParamReal ("s_lvl2", 0.5f); p.setParamReal ("s_lpf", 0.6f); p.setParamReal ("s_lpfRes", 0.55f);
+    p.setParamReal ("s_slot1Src", MsLfo1); p.setParamReal ("s_slot1Dst", MdPitch2); p.setParamReal ("s_slot1Amt", 0.35f);
+    p.setParamReal ("s_l1Rate", 0.35f); p.setParamReal ("s_l1Wave", 0);
+    p.setParamReal ("power", 0.45f); p.setParamReal ("compType", 1);
+}
+void sBass (OrageAudioProcessor& p)
+{
+    p.setParamReal ("s_wave1", 1); p.setParamReal ("s_wave2", 0); p.setParamReal ("s_oct1", 1); p.setParamReal ("s_oct2", 1);
+    p.setParamReal ("s_lvl2", 0.6f); p.setParamReal ("s_tune2", 0.15f); p.setParamReal ("s_lpf", 0.4f); p.setParamReal ("s_fltEnv", 0.7f);
+    p.setParamReal ("s_lpfRes", 0.4f); p.setParamReal ("s_fD", 0.3f); p.setParamReal ("s_fS", 0.05f); p.setParamReal ("s_aS", 0.9f);
+    p.setParamReal ("s_slot1Src", MsMac1); p.setParamReal ("s_slot1Dst", MdLpf); p.setParamReal ("s_slot1Amt", 0.8f);
+    p.setParamReal ("power", 0.9f); p.setParamReal ("material", 2); p.setParamReal ("clip", 0.55f); p.setParamReal ("unc", 0.45f);
+    p.setParamReal ("lightning", 0.3f); p.setParamReal ("compType", 1); p.setParamReal ("compAmt", 0.5f);
+}
+void sFm (OrageAudioProcessor& p)
+{
+    p.setParamReal ("s_wave1", 2); p.setParamReal ("s_wave2", 2); p.setParamReal ("s_fm", 0.55f); p.setParamReal ("s_tune2", 12);
+    p.setParamReal ("s_lvl1", 0.8f); p.setParamReal ("s_lpf", 0.8f); p.setParamReal ("s_lpfRes", 0.1f);
+    p.setParamReal ("s_slot1Src", MsEnv); p.setParamReal ("s_slot1Dst", MdFm); p.setParamReal ("s_slot1Amt", 0.6f);
+    p.setParamReal ("s_aD", 0.35f); p.setParamReal ("s_aS", 0.4f);
+}
+void sRing (OrageAudioProcessor& p)
+{
+    p.setParamReal ("s_wave1", 0); p.setParamReal ("s_wave2", 1); p.setParamReal ("s_ring", 0.8f); p.setParamReal ("s_tune2", 5.5f);
+    p.setParamReal ("s_lvl1", 0.3f); p.setParamReal ("s_lpf", 0.7f);
+    p.setParamReal ("s_slot1Src", MsLfo2); p.setParamReal ("s_slot1Dst", MdPw2); p.setParamReal ("s_slot1Amt", 0.8f);
+    p.setParamReal ("s_l2Rate", 0.3f); p.setParamReal ("s_l2Wave", 1);
+    p.setParamReal ("destroy", 0.4f); p.setParamReal ("dSync", 7);
+}
+#endif
 const Factory kFactory[] = {
     { "Init", fInit },
+#if ORAGE_SYNTH
+    { "Hard Sync Lead", sLead }, { "Justice Bass Synth", sBass }, { "FM Bell Pluck", sFm }, { "Ring Wobble", sRing },
+#endif
     { "Waters Of Nazareth (depart)", fWaters },
     { "Gated Fuzz Wall", fGated },
     { "Envelope Wah Scream", fWah },
@@ -133,21 +230,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout OrageAudioProcessor::createL
         else
             l.add (std::make_unique<juce::AudioParameterFloat> (pid, d.name, juce::NormalisableRange<float> (d.mn, d.mx, 0.001f), d.def));
     }
+#if ORAGE_SYNTH
+    addSynthParams (l);
+#endif
     return l;
 }
 
 OrageAudioProcessor::OrageAudioProcessor()
     : AudioProcessor (BusesProperties()
+#if ! ORAGE_SYNTH
                           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+#endif
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
-      apvts (*this, nullptr, "ORAGEFX", createLayout())
+      apvts (*this, nullptr, ORAGE_SYNTH ? "ORAGESYNTH" : "ORAGEFX", createLayout())
 {
     for (const auto& d : kDefs) raw.push_back (apvts.getRawParameterValue (d.id));
+#if ORAGE_SYNTH
+    for (const auto& d : synDefs()) rawSyn.push_back (apvts.getRawParameterValue (d.id));
+#endif
 }
 
 bool OrageAudioProcessor::isBusesLayoutSupported (const BusesLayout& l) const
 {
     const auto out = l.getMainOutputChannelSet();
+#if ORAGE_SYNTH
+    return out == juce::AudioChannelSet::stereo();
+#endif
     return (out == juce::AudioChannelSet::mono() || out == juce::AudioChannelSet::stereo())
            && out == l.getMainInputChannelSet();
 }
@@ -156,6 +264,9 @@ void OrageAudioProcessor::prepareToPlay (double sampleRate, int)
 {
     setLatencySamples (0);
     engine.prepare ((float) sampleRate);
+#if ORAGE_SYNTH
+    synth.prepare ((float) sampleRate);
+#endif
 }
 
 orage::Params OrageAudioProcessor::readParams() const
@@ -184,7 +295,33 @@ orage::Params OrageAudioProcessor::readParams() const
     return p;
 }
 
-void OrageAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+
+#if ORAGE_SYNTH
+orage::SynthParams OrageAudioProcessor::readSynth() const
+{
+    size_t i = 0;
+    auto f = [this, &i] { return rawSyn[i++]->load(); };
+    auto b = [&f] { return f() > 0.5f; };
+    auto n = [&f] { return juce::roundToInt (f()); };
+    auto sec = [&f] { return 0.001f * std::pow (5000.f, f()); };      // 1 ms .. 5 s
+    SynthParams s;
+    s.wave1 = n(); s.oct1 = n() - 2; s.wave2 = n(); s.oct2 = n() - 2;
+    s.tune2 = f(); s.fine2 = f(); s.pw1 = f(); s.pw2 = f();
+    s.sync = b() ? 1 : 0; s.fm = f(); s.ring = f();
+    s.lvl1 = f(); s.lvl2 = f(); s.noise = f(); s.glide = f();
+    s.hpf = f(); s.hpfRes = f(); s.lpf = f(); s.lpfRes = f(); s.fltEnv = f(); s.keytrack = f(); s.drive = f();
+    s.aA = sec(); s.aD = sec(); s.aS = f(); s.aR = sec();
+    s.fA = sec(); s.fD = sec(); s.fS = f(); s.fR = sec();
+    s.master = f();
+    for (auto& l : s.lfo) { l.rate = f(); l.wave = n(); l.slew = f(); l.fade = f(); l.sync = n(); l.trig = b() ? 1 : 0; }
+    for (auto& m : s.macro) m = f();
+    for (auto& sl : s.slot) { sl.src = n(); sl.dst = n(); sl.amt = f(); }
+    jassert (i == rawSyn.size());
+    return s;
+}
+#endif
+
+void OrageAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
     const int nc = juce::jmin (2, buffer.getNumChannels());
@@ -205,12 +342,41 @@ void OrageAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         }
     engine.setHost (bpm, ppq, playing, hasPpq);
 
+#if ORAGE_SYNTH
+    {
+        buffer.clear();
+        keyboardState.processNextMidiBuffer (midi, 0, total, true);     // clavier a l'ecran -> notes MIDI
+        synth.setHost (bpm);
+        synth.setParams (readSynth());
+        float* sl = buffer.getWritePointer (0);
+        float* sr = nc > 1 ? buffer.getWritePointer (1) : buffer.getWritePointer (0);
+        int pos = 0;
+        auto render = [&] (int upTo)
+        {
+            if (upTo > pos) { synth.process (sl + pos, sr + pos, upTo - pos); pos = upTo; }
+        };
+        for (const auto meta : midi)
+        {
+            render (juce::jlimit (0, total, meta.samplePosition));
+            const auto m = meta.getMessage();
+            if (m.isNoteOn())                  synth.noteOn (m.getNoteNumber(), m.getFloatVelocity());
+            else if (m.isNoteOff())            synth.noteOff (m.getNoteNumber());
+            else if (m.isAllNotesOff() || m.isAllSoundOff()) synth.allNotesOff();
+            else if (m.isPitchWheel())         synth.setBend ((float) (m.getPitchWheelValue() - 8192) / 8192.f * 2.f);
+            else if (m.isController() && m.getControllerNumber() == 1) synth.setWheel ((float) m.getControllerValue() / 127.f);
+        }
+        render (total);
+    }
+#endif
     engine.setParams (readParams());
     float* io[2] = { buffer.getWritePointer (0), nc > 1 ? buffer.getWritePointer (1) : nullptr };
     engine.process (io, total, nc);
 }
 
-juce::AudioProcessorEditor* OrageAudioProcessor::createEditor() { return new OrageAudioProcessorEditor (*this); }
+juce::AudioProcessorEditor* OrageAudioProcessor::createEditor()
+{
+    return new SynthEditor (*this);
+}
 
 // ---------------------------------------------------------------- etat (projet Ableton) et presets
 juce::ValueTree OrageAudioProcessor::captureState()
@@ -253,6 +419,10 @@ void OrageAudioProcessor::resetModules()
     for (const auto& d : kDefs)
         if (juce::String (d.id) != "on")
             if (auto* prm = apvts.getParameter (d.id)) prm->setValueNotifyingHost (prm->getDefaultValue());
+#if ORAGE_SYNTH
+    for (const auto& d : synDefs())
+        if (auto* prm = apvts.getParameter (d.id)) prm->setValueNotifyingHost (prm->getDefaultValue());
+#endif
 }
 void OrageAudioProcessor::clearRack()     { engine.setRack ({}); }
 void OrageAudioProcessor::defaultRack()   { engine.setDefaultRack(); }
@@ -274,7 +444,7 @@ void OrageAudioProcessor::loadFactoryPreset (int i)
 juce::File OrageAudioProcessor::getPresetDir() const
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-               .getChildFile ("Foudre Audio").getChildFile ("Orage FX").getChildFile ("Presets");
+               .getChildFile ("Foudre Audio").getChildFile (ORAGE_SYNTH ? "Orage" : "Orage FX").getChildFile ("Presets");
 }
 
 juce::StringArray OrageAudioProcessor::getUserPresetNames() const

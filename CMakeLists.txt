@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(Orage VERSION 1.0.0)
+project(Orage VERSION 5.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,7 +36,8 @@ juce_add_plugin(Orage
 
 target_sources(Orage PRIVATE
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/SynthEditor.cpp)
 
 target_compile_definitions(Orage PUBLIC
     JUCE_WEB_BROWSER=0
