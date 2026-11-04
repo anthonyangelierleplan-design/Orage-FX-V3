@@ -191,14 +191,15 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p) : proc (p)
     }
     {
         auto* u = unit ("MODULATION MATRIX   source > destination > quantite");
-        struct Cell { juce::ComboBox *s, *d; juce::Slider* a; };
+        struct Cell { juce::ComboBox *s, *d; DetentSlider* a; };
         auto cells = std::make_shared<std::vector<Cell>>();
         for (int i = 1; i <= kSlots; ++i)
         {
             const juce::String pre ("s_slot" + juce::String (i));
             auto* s = combo (*u, (pre + "Src").toRawUTF8());
             auto* d = combo (*u, (pre + "Dst").toRawUTF8());
-            auto sl = std::make_unique<juce::Slider> (juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
+            auto sl = std::make_unique<DetentSlider> (juce::Slider::LinearHorizontal, juce::Slider::NoTextBox);
+            sl->detent = 0.0; sl->showMark = true;
             sl->setPopupDisplayEnabled (true, true, nullptr);
             sl->setScrollWheelEnabled (false);
             sl->setDoubleClickReturnValue (true, 0.0);
@@ -270,7 +271,7 @@ void SynthPanel::resized()
 // ---------------------------------------------------------------- fenetre : onglets (synthe) + mise a l'echelle
 
 int SynthEditor::designHeight() const { return ORAGE_SYNTH ? 990 : 900; }
-int SynthEditor::designWidth() const  { return ORAGE_SYNTH ? 1400 : 1240; }
+int SynthEditor::designWidth() const  { return 1440; }
 
 SynthEditor::SynthEditor (OrageAudioProcessor& p)
     : AudioProcessorEditor (&p), proc (p),
@@ -335,10 +336,10 @@ void SynthEditor::resized()
 #if ORAGE_SYNTH
     synthTab.setBounds (10, 3, 150, 24);
     fxTab.setBounds (166, 3, 150, 24);
-    fx.setBounds ((designWidth() - 1240) / 2, 30, 1240, 900);
+    fx.setBounds ((designWidth() - 1440) / 2, 30, 1440, 900);
     synthPanel->setBounds (0, 30 + 118, designWidth(), 900 - 118);
     keys->setBounds (10, 934, designWidth() - 20, 52);
 #else
-    fx.setBounds (0, 0, 1240, 900);
+    fx.setBounds (0, 0, 1440, 900);
 #endif
 }

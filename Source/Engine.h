@@ -609,7 +609,7 @@ public:
         for (auto& a : audioIn) a.store (0);
         for (auto& c : cvIn) c.store (0);
         for (auto& m : modLed) m.store (0.f);
-        setDefaultRack();
+        setRack ({});                                   // au lancement : rack vide (INPUT -> OUTPUT direct)
     }
 
     // ---- rack

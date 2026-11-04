@@ -14,6 +14,7 @@ inline const juce::Colour cvRing { 0xffe0662a };       // anneau orange des pris
 class OrageAudioProcessorEditor;
 class RackView;
 class PatchBay;
+class PatchPanel;
 
 // ---------------------------------------------------------------- potard use + boites de dialogue sombres
 class OrageLookAndFeel : public juce::LookAndFeel_V4
@@ -25,6 +26,27 @@ public:
 };
 
 // ---------------------------------------------------------------- potard (echelle et nom serigraphies dans paint())
+// potard / curseur avec "cran" : un aimant leger retient la valeur au zero (double-clic = valeur par defaut)
+class DetentSlider : public juce::Slider
+{
+public:
+    using juce::Slider::Slider;
+    double detent = -1e30;                                   // valeur du cran (hors plage = aucun)
+    bool showMark = false;                                   // trait orange sur la piste (curseurs lineaires)
+    double snapValue (double v, DragMode mode) override
+    {
+        if (mode == notDragging || detent < getMinimum() || detent > getMaximum()) return v;
+        return std::abs (v - detent) < (getMaximum() - getMinimum()) * 0.022 ? detent : v;
+    }
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        if (! showMark || detent < getMinimum() || detent > getMaximum()) return;
+        const float x = (float) getPositionOfValue (detent);
+        g.setColour (juce::Colour (0xffe0662a));
+        g.fillRect (x - 1.f, (float) getHeight() * 0.5f - 9.f, 2.f, 18.f);
+    }
+};
+
 class KnobUnit : public juce::Component
 {
 public:
@@ -34,7 +56,7 @@ public:
     void resized() override;
     void setCvActive (bool);
 
-    juce::Slider slider;
+    DetentSlider slider;
     juce::String text, loText, hiText;
     int cvIndex;                                     // destination CV associee (ou -1)
     bool cvActive = false;
@@ -145,6 +167,25 @@ private:
     Jack* dragFrom = nullptr;
     Jack* hovered = nullptr;
     juce::Point<float> dragPos;
+};
+
+// ---------------------------------------------------------------- panneau patchbay (toutes les prises, separe des modules)
+class PatchPanel : public juce::Component
+{
+public:
+    explicit PatchPanel (OrageAudioProcessorEditor& e) : owner (e) {}
+    void paint (juce::Graphics&) override;
+    void paintOverChildren (juce::Graphics&) override;
+    void layoutJacks();                                         // relit le rack : lignes audio dans l'ordre, prises des modules absents masquees
+
+    Jack* audioOut[orage::kNumNodes] {};
+    Jack* audioIn[orage::kNumNodes] {};
+    Jack* cvOut[orage::kNumSrc] {};
+    Jack* cvIn[orage::kNumCv] {};
+private:
+    struct Label { juce::String text; juce::Rectangle<int> r; bool dim; bool cv; };
+    std::vector<Label> labels;
+    OrageAudioProcessorEditor& owner;
 };
 
 // ---------------------------------------------------------------- un module (rack ou bandeau de modulation)
@@ -283,6 +324,7 @@ private:
     PlatePanel side { "MODULES" };
     std::vector<std::unique_ptr<juce::TextButton>> tiles;       // une par module audio
     PatchBay patchBay;
+    PatchPanel patchPanel { *this };
     std::unique_ptr<OrageDialog> dialog;
     Jack *jackIn = nullptr, *jackOut = nullptr, *jackMix = nullptr;
     LedToggle cablesBtn;

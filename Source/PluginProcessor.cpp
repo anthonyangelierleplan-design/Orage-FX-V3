@@ -436,7 +436,7 @@ void OrageAudioProcessor::loadFactoryPreset (int i)
     i = juce::jlimit (0, kNumFactory - 1, i);
     resetModules();
     engine.clearPatch();
-    engine.setDefaultRack();
+    if (i == 0) engine.setRack ({}); else engine.setDefaultRack();      // Init = rack vide ; les autres presets utilisent tous les modules
     kFactory[i].apply (*this);
     presetName = kFactory[i].name;
 }
