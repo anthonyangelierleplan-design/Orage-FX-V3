@@ -1,5 +1,11 @@
 # Orage FX v3 — Foudre Audio
 
+## Nouveautés (mise à jour v8)
+- **Design** : quatre thèmes (CHAMPAGNE par défaut, ARGENT, CUIVRE, ORIGINAL noir et orange), bouton LOOK ; potards et touches métalliques en relief, plus d'usure ; Roulette et Chaos retirés.
+- **Oscilloscope** : un clic sur la lampe du haut bascule lampe / oscilloscope (signal de sortie).
+- **Réverb plaque** (module REVERB) : SIZE, DECAY, PRE-DELAY, DAMPING, MOTION, WIDTH, LOW CUT, SHIMMER, FREEZE.
+- Les modules démarrent à zéro (neutres) quand on les ajoute ; presets d'usine classés par catégories, sauvegarde utilisateur avec catégorie.
+
 Distorsion haute tension semi-modulaire (VST3 + Standalone), rack façon Guitar Rig.
 
 ## Nouveautés v3
