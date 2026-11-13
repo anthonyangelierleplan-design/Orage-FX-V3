@@ -1,5 +1,9 @@
 # Orage FX v3 — Foudre Audio
 
+## Nouveautés v12
+- **Identité visuelle « Bel Air »** : nouveau logo ORAGE en lettres chromées (or / argent / cuivre selon le thème, éclair en barre du A, filet de vitesse, étincelle) ; modules FX avec bandeau crème, filet chromé, blason et grand pictogramme gravé sur le panneau ; teintes harmonisées pour chaque thème.
+- **Rack FX** : bouton d'activation / bypass par module (comme Serum 2), glisser-déposer pour réordonner avec défilement automatique du rack, barre de défilement qui ne cache plus les modules, textes mieux dégagés.
+
 ## Nouveautés (mise à jour v8)
 - **Design** : quatre thèmes (CHAMPAGNE par défaut, ARGENT, CUIVRE, ORIGINAL noir et orange), bouton LOOK ; potards et touches métalliques en relief, plus d'usure ; Roulette et Chaos retirés.
 - **Oscilloscope** : un clic sur la lampe du haut bascule lampe / oscilloscope (signal de sortie).
