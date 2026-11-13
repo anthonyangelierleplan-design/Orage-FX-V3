@@ -1,5 +1,10 @@
 # Orage FX v3 — Foudre Audio
 
+## Nouveautés v13
+- **Module STUTTER / BEAT REPEAT** : répétition rythmique de l'audio calée sur le tempo (BEAT REPEAT / REVERSE / GATE / OFFBEAT, divisions 1 mesure à 1/64, droit / triolet / pointé), bouton ENGAGE et 5 entrées CV au patchbay. Le rack accepte 11 modules.
+- Correctif : état des tuiles de modules dans le panneau latéral.
+
+
 ## Nouveautés v12
 - **Identité visuelle « Bel Air »** : nouveau logo ORAGE en lettres chromées (or / argent / cuivre selon le thème, éclair en barre du A, filet de vitesse, étincelle) ; modules FX avec bandeau crème, filet chromé, blason et grand pictogramme gravé sur le panneau ; teintes harmonisées pour chaque thème.
 - **Rack FX** : bouton d'activation / bypass par module (comme Serum 2), glisser-déposer pour réordonner avec défilement automatique du rack, barre de défilement qui ne cache plus les modules, textes mieux dégagés.
