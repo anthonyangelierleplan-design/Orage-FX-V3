@@ -1629,6 +1629,8 @@ struct SettingsPanel : public juce::Component
     {
         struct Row { const char* title; const char* hint; juce::StringArray items; std::atomic<int>* v; };
         const Row rows[] {
+            { "CONTROLLER", "Hydrasynth : its MIDI map (knobs, ARP...). Osmose CE : MPE on, bend +/-48, no knob map (slider = CC1, learn the pedals).",
+              { "Hydrasynth", "Osmose CE" }, &p.controller },
             { "AUDIO QUALITY", "High Fidelity : oversampling x8 on filters, folder and drive. Heavier on CPU.",
               { "Performance  (filters x2)", "Quality  (filters x4)", "High Fidelity  (filters x8)" }, &p.quality },
             { "MIDI SMOOTHING", "Glides knob changes so a 7-bit controller does not zipper.",
@@ -1637,7 +1639,7 @@ struct SettingsPanel : public juce::Component
               { "Linear", "Exponential  (soft start)", "Logarithmic  (sensitive start)", "S-curve" }, &p.atCurve },
             { "AFTERTOUCH RESPONSE", "How fast the pressure follows your finger.",
               { "Instant", "Fast", "Medium  (default)", "Slow", "Slower", "Very slow" }, &p.atSpeed },
-            { "MPE MODE", "On : each note has its own pressure, slide (CC74) and pitch bend (channel 1 = master). Hydrasynth : MPE mode.",
+            { "MPE MODE", "On : each note has its own pressure, slide (CC74) and pitch bend (channel 1 = master). Hydrasynth and Osmose CE : MPE mode.",
               { "Off  (standard MIDI)", "On  (MPE, channels 2-16)" }, &p.mpeOn },
             { "MPE BEND RANGE", "Must match the keyboard (MPE default: 48 semitones).",
               { "+/- 2 semitones", "+/- 12 semitones", "+/- 24 semitones", "+/- 48 semitones  (MPE default)" }, &p.mpeBend },
@@ -1652,21 +1654,23 @@ struct SettingsPanel : public juce::Component
             auto cb = std::make_unique<juce::ComboBox>(); cb->addItemList (r.items, 1);
             cb->setSelectedId (r.v->load() + 1, juce::dontSendNotification);
             auto* a = r.v; auto* c = cb.get();
-            cb->onChange = [this, a, c] { a->store (c->getSelectedId() - 1); proc.settingChanged(); };
+            vals.push_back (a);
+            cb->onChange = [this, a, c] { a->store (c->getSelectedId() - 1); if (a == &proc.controller) { proc.applyControllerProfile (a->load()); refreshCombos(); } proc.settingChanged(); };
             addAndMakeVisible (*lb); addAndMakeVisible (*hn); addAndMakeVisible (*cb);
             labels.push_back (std::move (lb)); hints.push_back (std::move (hn)); combos.push_back (std::move (cb));
         }
         // assignations MIDI : par defaut la table du Hydrasynth ; on peut tout vider (autre controleur) puis apprendre ses propres CC (clic droit sur un potard)
         midiTitle.setText ("MIDI ASSIGNMENTS", juce::dontSendNotification);
         midiTitle.setFont (juce::Font (juce::FontOptions (11.f, juce::Font::bold))); midiTitle.setColour (juce::Label::textColourId, juce::Colour (0xffe8d9a8));
-        midiHint.setText ("Default: Hydrasynth map. Clear all to use another controller, then right-click a knob > Assign MIDI.", juce::dontSendNotification);
+        midiHint.setText ("Default: Hydrasynth map (see CONTROLLER above). Clear all to use another controller, then right-click a knob > Assign MIDI.", juce::dontSendNotification);
         midiHint.setFont (juce::Font (juce::FontOptions (9.5f))); midiHint.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.55f));
         clearBtn.setButtonText ("CLEAR ALL ASSIGNMENTS"); hydraBtn.setButtonText ("RESTORE HYDRASYNTH MAP");
         clearBtn.onClick = [this] { proc.clearAllMidiAssign(); };
-        hydraBtn.onClick = [this] { proc.resetMidiMap(); };
+        hydraBtn.onClick = [this] { proc.applyControllerProfile (0); refreshCombos(); };
         addAndMakeVisible (midiTitle); addAndMakeVisible (midiHint); addAndMakeVisible (clearBtn); addAndMakeVisible (hydraBtn);
         setSize (420, 24 + (int) combos.size() * 58 + 78);
     }
+    void refreshCombos() { for (size_t k = 0; k < combos.size(); ++k) combos[k]->setSelectedId (vals[k]->load() + 1, juce::dontSendNotification); }
     void paint (juce::Graphics& g) override { g.fillAll (juce::Colour (0xff1a1713)); }
     void resized() override
     {
@@ -1681,7 +1685,7 @@ struct SettingsPanel : public juce::Component
     }
     OrageAudioProcessor& proc;
     std::vector<std::unique_ptr<juce::Label>> labels, hints;
-    std::vector<std::unique_ptr<juce::ComboBox>> combos;
+    std::vector<std::unique_ptr<juce::ComboBox>> combos; std::vector<std::atomic<int>*> vals;
     juce::Label midiTitle, midiHint; juce::TextButton clearBtn, hydraBtn;
 };
 }
