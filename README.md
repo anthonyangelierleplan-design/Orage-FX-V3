@@ -143,5 +143,42 @@ Façade façon Korg MS20 : zones délimitées par des traits blancs sérigraphi�
 - **LFO 0,05 – 1000 Hz** (avant 300 Hz) pour les 4 LFO du synthé. Les presets et les projets existants sont convertis (propriété d'état `lfoV3`) : même vitesse qu'avant.
 - **Précision** : quand un LFO utilisé (routé dans la matrice, vibrato, filtre) dépasse 160 / 350 / 700 Hz, le bloc de contrôle passe de 16 à 8 / 4 / 2 échantillons. À 1 kHz, la modulation reste une vraie onde (test : un LFO 1 kHz sur la hauteur crée bien les bandes latérales à f0 ± 1 kHz, `tools/tests/reprise_midi_chord.cpp`). Les LFO lents ne coûtent rien de plus ; le coût en CPU n'augmente que lorsqu'un LFO rapide est réellement utilisé.
 
-## v22d (profil de contrôleur : Hydrasynth / Osmose CE)
+## v22d (corrections)
+- **FM** : avec un rapport FM (1:2, 2:1, 3:1...), OCTAVE, TUNE et FINE du VCO 2 se reglent toujours, par-dessus le rapport (avant, ils n'avaient plus d'effet). CHARACTER et DICE remettent le VCO 2 au neutre pour que leur rapport s'entende tel quel.
+- **Sequenceur sans arpegiateur** : TYPE = SEQ suffit, plus besoin d'allumer l'ARP (les touches transposent le motif ; LATCH reste disponible).
+- **Sequenceur en tempo** : changer de note ne relance plus l'horloge ; elle continue meme entre deux notes. Quand le DAW joue (cadence synchronisee), les pas sont cales sur sa mesure. Une touche a peine en retard (< 30 ms) fait quand meme partir le pas en cours ; apres une longue pause (un motif entier), le motif repart du debut.
+- Anciens projets : memes hauteurs et meme jeu (VCO 2 remis au neutre s'il etait desaccorde sans effet ; SEQ choisi avec ARP eteint -> type ARP).
+- **LINK des enveloppes** (bouton sur le panneau AMP) : l'enveloppe FILTRE pilote aussi le volume ; l'enveloppe AMP devient **ENV 2 libre** (ses ADSR restent reglables) : source ENV AMP de la matrice, ou raccourci DEST (VCO 2 pitch, VCO 1+2 pitch, FM, PWM, wavefold, niveau VCO 2, ring) + AMOUNT (+-1 = +-1 octave pour la hauteur). LINK eteint : rien ne change.
+- Tests : `tools/tests/seq_tempo_fm`, `tools/tests/env_link` ; `midi_hydrasynth` recompile de nouveau (acces aux membres prives retabli).
+
+## v22e (VCO)
+- **VCO surechantillonnes** (x2, x4 en High Fidelity) : dent de scie, carre, FM, retour et sync restent propres jusque dans l'aigu (pire raie parasite audible : -47 -> -66 dB en dent de scie au Sol 7 ; FM lineaire -15 -> -51 dB). Cout processeur : +1 a +4 %.
+- **Hard sync anti-repliement** : correction a l'instant exact du recalage (et le VCO 2 n'avance plus d'un echantillon de trop apres le recalage) : -24 -> -61 dB dans l'aigu, toutes formes d'onde.
+- **SETTINGS > VCO PHASE** : *Free running* (defaut, comme un vrai VCO : chaque note demarre ailleurs dans le cycle) ou *Reset* (attaque identique a chaque note).
+- **SETTINGS > VCO MODEL** : *Analog* (defaut : rampe legerement bombee, sommets du triangle arrondis, liaison capacitive ~5 Hz, petites differences entre les voix) ou *Clean digital*.
+- Test : `tools/tests/vco_phase_sync`.
+
+## v22e (audit enveloppes et effets)
+- **Plus de clic quand une voix est reutilisee** (vol de voix a la 13e note, MONO qui rejoue pendant le release) : la voix garde son etat comme sur un vrai synthe. Mesure : saut de +23 dB (vol) et +39 dB (MONO) -> au niveau du jeu normal.
+- **Reverb en interpolation cubique** : plus propre (-52 -> -58 dB), meme couleur (amortissement et filtre de sortie recales, moins d'1 dB d'ecart).
+- **BBD** : le souffle d'horloge suit maintenant le compresseur-expandeur d'un vrai BBD : present avec le signal, il s'efface dans le silence (-63 -> -93 dB).
+- **Surechantillonneur elliptique** (-95 dB) pour la distorsion. Limite connue : une fuzz tres poussee sur des notes tres aigues (vers 3 kHz) replie encore un peu ; aux hauteurs habituelles c'est propre (-68 a -100 dB).
+- Verifies sans defaut : enveloppes, crepitement des reglages, denormaux, bruit residuel. L'instabilite de la distorsion (UNC) est voulue.
+- Tests : `tools/tests/continuite_voix`, `tools/tests/audit_effets_orage`.
+
+## v22f (profil de contrôleur : Hydrasynth / Osmose CE)
 - **SETTINGS → CONTROLLER** : *Hydrasynth* (table MIDI d'origine) ou *Osmose CE*. Le profil Osmose active le MPE (canal 1 maître, une note par canal), règle le bend par note sur ±48 (valeur MPE d'origine de l'Osmose), vide la table MIDI (l'Osmose n'a pas de potards) et passe la reprise en DIRECT (slider et pédales sont absolus). Le slider de modulation (CC1) pilote déjà la molette ; la pression par note, le CC74 (axe aftertouch de l'Osmose) et le bend par touche sont gérés par le MPE existant. Pédales : clic droit sur un potard > Assign MIDI. Le choix est sauvé avec les réglages globaux. « RESTORE HYDRASYNTH MAP » revient au profil Hydrasynth.
+
+## v23 (cassette, arpège en accords, vitesse par pas)
+- **Module CASSETTE / VHS** (rack d'effets, 12e module) pour un son qui a l'air vieux, façon Boards of Canada. Ordre interne : vieil échantillonneur → enregistrement saturé → lecture qui pleure → bande usée → souffle.
+  - **WOW** : la hauteur flotte lentement (jusqu'à ~40 cents crête à crête, avec une dérive irrégulière du moteur). **FLUTTER** : tremblement rapide de la bande.
+  - **SATURATE** : saturation de bande suréchantillonnée ×4 (gain unité à bas niveau, un peu de compression). **AGE** : les aigus partent (19,5 kHz → 2,4 kHz), bosse de tête de lecture, petites pertes de niveau d'une bande usée au-delà de la moitié.
+  - **HISS** : souffle de bande. **CRUNCH** : vieil échantillonneur (fréquence 32 → 5,5 kHz, résolution 15 → 6,5 bits). **MIX**.
+  - Tout à zéro = transparent (aucun retard tant que WOW et FLUTTER sont à zéro). Placé en fin de chaîne par défaut (il « enregistre » tout le reste).
+  - Pas encore de destination de matrice pour ses potards.
+- **Arpégiateur : mode CHORD** (7e cran du potard MODE) : à chaque pas, l'accord tenu (ou l'accord mémorisé en KEY ASSIGN CHORD) est rejoué en bloc. OCTAVE fait monter l'accord d'une octave à chaque pas joué. Accents, silences, ratchets, gate et swing s'appliquent à l'accord entier.
+- **Vitesse par pas** : bouton **STEP SPEED** en haut à droite de NOTE STEPS (à côté de RATCHET) : la rangée du bas affiche la vitesse de chaque pas. Clic = vitesse suivante (×1 → ×2 → ×4 → ×½ → ×3/2), clic droit = ×1, glisser = même vitesse sur les pas voisins, molette = vitesse plus lente / plus rapide. Un pas ×2 dure deux fois moins longtemps (le motif avance plus vite), ×½ deux fois plus longtemps. En vue RATCHET, un petit badge rappelle la vitesse des pas modifiés. Marche en ARP comme en SEQ ; en SEQ calé sur le DAW, la position suit le morceau avec les vitesses.
+- **Potards crantés** : les libellés latéraux ne sont plus coupés (le potard laisse la place aux textes les plus longs).
+- **8 presets** : Faded Polaroid (Pad), Filmstrip Keys, Lullaby Sine (Lead), VHS Bass, Chord Pulse 82 (CHORD en 1/16, tenir un accord), Half-Speed Memory (SEQ avec pas ×2 et ×½), Rainy Projector (Texture), et Cassette Memories (Rack FX, aussi dans Orage FX). Niveaux calés sur ceux de leur catégorie.
+- Compatibilité : anciens projets relus à l'identique (patch v4 → v5, motif sans vitesse = ×1). Le potard MODE a un cran de plus : sur l'Hydrasynth (CC 108), la course est répartie sur 7 positions au lieu de 6.
+- Tests : `tools/tests/v23_cassette_arp.cpp` (sans JUCE), `tools/tests/v23_niveaux_presets.cpp`.

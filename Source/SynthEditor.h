@@ -85,7 +85,7 @@ public:
     juce::String text; juce::Justification just; float size;
 };
 
-// Grille de pas des notes : clic = silence / note / accent, rangee du bas = ratchet (1 a 4 repetitions)
+// Grille de pas des notes : clic = silence / note / accent, rangee du bas = ratchet (1 a 4 repetitions) ou vitesse du pas (v23)
 class StepGrid : public juce::Component, private juce::Timer
 {
 public:
@@ -97,9 +97,11 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void randomize();
     void clear();
+    void setSpeedRow (bool s) { speedRow = s; repaint(); }       // rangee du bas : false = RATCHET, true = SPEED
 private:
     void timerCallback() override;
     void apply (const juce::MouseEvent&, bool first);
+    bool speedRow = false;
     OrageAudioProcessor& proc;
     int shown = -2, paintState = 1, recSig = -1;
     bool ratchetRow = false;
@@ -136,6 +138,7 @@ private:
     void timerCallback() override;
     void mouseDown (const juce::MouseEvent&) override;
     std::vector<KnobUnit*> macroKnobs;
+    ModuleUnit* envLinkUnit = nullptr; ModuleUnit* envFltUnit = nullptr; juce::ComboBox* envLinkDst = nullptr;   // LINK des enveloppes
     KnobUnit* knob (juce::Component& parent, const char* id, const juce::String& text, const char* lo = "0", const char* hi = "10");
     ModuleUnit* unit (const juce::String& title);
 

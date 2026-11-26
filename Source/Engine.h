@@ -14,11 +14,11 @@ constexpr float kPi = 3.14159265358979f;
 constexpr int kSub = 32;                      // taille du bloc de controle (modulations)
 
 // ------------------------------------------------------------------ topologie du patch
-enum Node { NIn, NOct, NDist, NColor, NFilter, NDestroy, NComp, NSpring, NGate, NBbd, NVerb, NStut, NOut, kNumNodes };
+enum Node { NIn, NOct, NDist, NColor, NFilter, NDestroy, NComp, NSpring, NGate, NBbd, NVerb, NStut, NTape, NOut, kNumNodes };   // NTape (v23) : insere avant NOut, patch v5
 enum Src  { SrcLfo1, SrcLfo2, SrcSh, SrcEnv, kNumSrc };
 enum Cv   { CvDrive, CvClip, CvUnc, CvHpf, CvLpf, CvPeak, CvDestroy, CvDRate, CvSpring, CvMix, CvShIn, CvShClk, CvStutOn, CvStutLen, CvStutDecay, CvStutPitch, CvStutMix, kNumCv };
 
-constexpr int kMaxRack = 11;                   // nombre de modules audio posables sur le rack
+constexpr int kMaxRack = 12;                   // nombre de modules audio posables sur le rack
 
 // durees des divisions de la synchro (en noires) ; 0 = libre
 inline float divBeats (int idx)
@@ -124,6 +124,7 @@ struct Params
     float revMix = 0.f, revSize = 0.5f, revDecay = 0.6f, revPre = 0.1f, revDamp = 0.4f, revMod = 0.3f, revWidth = 1.f, revShimmer = 0.f, revLowCut = 0.1f;  bool revFreeze = false;
     bool  stutOn = false;  int stutMode = 0, stutDiv = 4, stutFeel = 0;                 // module STUTTER : engage, mode (repeat / reverse / gate / offbeat), division, feeling (droit / triolet / pointe)
     float stutLen = 0.6f, stutDecay = 0.f, stutPitch = 0.5f, stutMix = 1.f;
+    float tapeWow = 0.f, tapeFlutter = 0.f, tapeSat = 0.f, tapeAge = 0.f, tapeHiss = 0.f, tapeCrunch = 0.f, tapeMix = 1.f;   // module CASSETTE (v23)
 };
 
 // ------------------------------------------------------------------ octaver (bascule /2 + redresseur)
@@ -333,22 +334,21 @@ inline float shapeXenon (float v, DistChannel& cs, float strike, float upC, floa
     return glow + (flash - glow) * cs.arc;
 }
 
-// ------------------------------------------------------------------ sur-echantillonnage x4 (IIR Butterworth ordre 6)
+// ------------------------------------------------------------------ sur-echantillonnage x4 : filtres elliptiques (-95 dB, ondulation 0,05 dB), coefficients normalises
+// (independants de la frequence d'echantillonnage) : les harmoniques aigues d'une saturation forte ne se replient plus dans l'audible
 struct Oversampler4
 {
-    Biquad up1[3], up2[3], dn1[3], dn2[3];
+    static constexpr double kS1[5][6] {{ 0.0027607614445487828, 0.004349710046557779, 0.0027607614445487828, 1, -0.53361790159879896, 0 }, { 1, 0.89445260479551203, 1, 1, -0.95313491300522823, 0.37796030852619045 }, { 1, 1, 0, 1, -0.71795988914649833, 0.57768832491538147 }, { 1, 0.45861658223953106, 1.0000000000000002, 1, -0.52077162232867913, 0.77072521849141273 }, { 1, 0.27104254161824798, 1, 1, -0.42849878641641925, 0.92706656444320312 } };
+    static constexpr double kS2[3][6] {{ 0.0019622284159014525, 0.0029687240617297171, 0.0019622284159014529, 1, -0.64549878518459314, 0 }, { 1, 0.9450120450203412, 1.0000000000000004, 1, -1.2777531849901183, 0.52121505291590686 }, { 1, 1, 0, 1, -1.3309587256446023, 0.80138120776815192 } };
+    static constexpr int kN1 = 5, kN2 = 3;
+    Biquad up1[kN1], dn1[kN1], up2[kN2], dn2[kN2];
 
-    static float filt (Biquad* f, float x, int c) { return f[2].process (f[1].process (f[0].process (x, c), c), c); }
+    template <int N> static float filt (Biquad (&f)[N], float x, int c) { for (int k = 0; k < N; ++k) x = f[k].process (x, c); return x; }
 
-    void prepare (float fs)
+    void prepare (float)
     {
-        static const double Q[3] { 0.5176, 0.7071, 1.9319 };
-        for (int i = 0; i < 3; ++i)
-        {
-            up1[i].makeLowPass (fs * 2.0, fs * 0.45, Q[i]);  dn1[i] = up1[i];
-            up2[i].makeLowPass (fs * 4.0, fs * 0.90, Q[i]);  dn2[i] = up2[i];
-            up1[i].reset(); up2[i].reset(); dn1[i].reset(); dn2[i].reset();
-        }
+        for (int i = 0; i < kN1; ++i) { up1[i].setRaw (kS1[i][0], kS1[i][1], kS1[i][2], kS1[i][3], kS1[i][4], kS1[i][5]); dn1[i] = up1[i]; up1[i].reset(); dn1[i].reset(); }
+        for (int i = 0; i < kN2; ++i) { up2[i].setRaw (kS2[i][0], kS2[i][1], kS2[i][2], kS2[i][3], kS2[i][4], kS2[i][5]); dn2[i] = up2[i]; up2[i].reset(); dn2[i].reset(); }
     }
     void up (float x, int c, float* o4)
     {
@@ -675,14 +675,14 @@ struct Bbd
 {
     static constexpr int kMax = 1 << 17;                  // 131072 echantillons : assez pour 2 s a 48 kHz
     std::vector<float> buf[2];
-    int w = 0; float fs = 44100.f, dly = 0.f, lpIn[2] {}, lpOut[2] {}, lpFb[2] {}, lfoPh = 0.f, drift = 0.f, hpFb[2] {};
+    int w = 0; float fs = 44100.f, dly = 0.f, lpIn[2] {}, lpOut[2] {}, lpFb[2] {}, lfoPh = 0.f, drift = 0.f, hpFb[2] {}, hissEnv[2] {};
     Rng rng;
     void prepare (float sampleRate)
     {
         fs = sampleRate;
         for (auto& b : buf) b.assign (kMax, 0.f);
         w = 0; dly = 0.f; lfoPh = 0.f; drift = 0.f;
-        for (int c = 0; c < 2; ++c) lpIn[c] = lpOut[c] = lpFb[c] = hpFb[c] = 0.f;
+        for (int c = 0; c < 2; ++c) lpIn[c] = lpOut[c] = lpFb[c] = hpFb[c] = hissEnv[c] = 0.f;
         rng.seed (0xBBD0001u);
     }
     float read (int c, float d) const
@@ -702,6 +702,7 @@ struct Bbd
         const float bw = lerp (9000.f, 2600.f, tNorm) * (0.35f + 0.65f * tone);               // horloge lente = bande passante etroite
         const float aIn = onePoleCoef (bw, fs), aFb = onePoleCoef (bw * 0.8f, fs);
         const float aHp = onePoleCoef (90.f, fs);
+        const float hissAtt = onePoleCoef (60.f, fs), hissRel = onePoleCoef (2.f, fs);
         const float g = fb * 1.12f;
         const float lfoInc = (0.35f + 0.9f * modDepth) / fs;
         for (int i = 0; i < n; ++i)
@@ -716,7 +717,9 @@ struct Bbd
             {
                 y[c] = read (c, dm);
                 lpOut[c] += aIn * (y[c] - lpOut[c]); y[c] = lpOut[c];                           // filtre de sortie
-                y[c] += 0.0006f * rng.bi();                                                       // bruit d'horloge
+                // bruit d'horloge, masque par le compresseur-expandeur (NE570) comme sur un vrai BBD : present avec le signal, il s'efface dans le silence
+                const float ay = std::fabs (y[c]); hissEnv[c] += (ay > hissEnv[c] ? hissAtt : hissRel) * (ay - hissEnv[c]);
+                y[c] += 0.0006f * std::min (1.f, 0.03f + 20.f * hissEnv[c]) * rng.bi();
                 fbv[c] = y[c];
             }
             for (int c = 0; c < 2; ++c)
@@ -749,13 +752,17 @@ struct Reverb
         {
             const int i = (int) d; const float fr = d - (float) i;
             const float a = b[(size_t) ((w - i) & mask)], c = b[(size_t) ((w - i - 1) & mask)];
-            return a + (c - a) * fr;
+            if (i < 2) return a + (c - a) * fr;                              // tout pres de l'ecriture : lineaire
+            // interpolation cubique (Hermite 4 points) : lectures modulees plus propres dans l'aigu
+            const float xm = b[(size_t) ((w - i + 1) & mask)], x2 = b[(size_t) ((w - i - 2) & mask)];
+            const float c1 = 0.5f * (c - xm), c2 = xm - 2.5f * a + 2.f * c - 0.5f * x2, c3 = 0.5f * (x2 - xm) + 1.5f * (a - c);
+            return ((c3 * fr + c2) * fr + c1) * fr + a;
         }
     };
     float fs = 44100.f, r = 1.f;
     Dl pre, in1, in2, in3, in4, mAL, dL1, aL2, dL2, mAR, dR1, aR2, dR2, shBuf;
     float bwLp = 0.f, hpS = 0.f, dampL = 0.f, dampR = 0.f, outL = 0.f, outR = 0.f, shLp = 0.f;
-    float lfoPh = 0.f, sizeS = 1.f, freezeS = 0.f, shPh = 0.f, shAmt = 0.f, tankL = 0.f, tankR = 0.f, dcL = 0.f, dcR = 0.f;
+    float lfoPh = 0.f, sizeS = 1.f, freezeS = 0.f, shPh = 0.f, shAmt = 0.f, tankL = 0.f, tankR = 0.f, dcL = 0.f, dcR = 0.f, toneL = 0.f, toneR = 0.f;
     void prepare (float sampleRate)
     {
         fs = sampleRate; r = fs / 29761.f;
@@ -783,10 +790,10 @@ struct Reverb
         const float rt = 0.45f * std::pow (80.f, decay) * (1.f + 0.6f * decay);                          // RT60 0.3 .. 24 s
         const float loopSec = 2.f * (10645.f / 29761.f) * sizeT;
         const float gDecay = std::min (0.9985f, std::pow (10.f, -1.5f * loopSec / rt));
-        const float dampHz = 16000.f * std::pow (1.f - damp, 2.2f) + 1200.f;
+        const float dampHz = (16000.f * std::pow (1.f - damp, 2.2f) + 1200.f) * 0.73f;   // x0,73 : meme couleur de queue qu'avec l'ancienne interpolation lineaire (mesure)
         const float aDamp = onePoleCoef (dampHz, fs), aBw = onePoleCoef (13000.f, fs);
         const float aHp = onePoleCoef (20.f * std::pow (25.f, lowcut), fs);
-        const float aShLp = onePoleCoef (6500.f, fs);
+        const float aShLp = onePoleCoef (6500.f, fs), aTone = onePoleCoef (8000.f, fs);
         const float preS = std::min (0.2f, 0.0f + 0.2f * preT * preT) * fs;
         const float dif1 = 0.75f, dif2 = 0.625f, dd1 = 0.7f, dd2 = std::max (0.25f, std::min (0.5f, gDecay + 0.15f));
         const float dryA = std::cos (mix * 0.5f * kPi), wetA = std::sin (mix * 0.5f * kPi);
@@ -851,6 +858,7 @@ struct Reverb
             const float m = 0.5f * (yl + yr), sd = 0.5f * (yl - yr) * (width * 1.5f);
             float wl = (m + sd) * 0.5f, wr = (m - sd) * 0.5f;
             dcL += 0.0005f * (wl - dcL); wl -= dcL; dcR += 0.0005f * (wr - dcR); wr -= dcR;
+            toneL += aTone * (wl - toneL); wl = toneL; toneR += aTone * (wr - toneR); wr = toneR;     // meme couleur qu'avec l'ancienne interpolation lineaire (mesuree)
             const float l0 = inL[i], r0 = nc > 1 ? inR[i] : inL[i];
             oL[i] = l0 * dryA + wl * wetA * 1.0f;
             if (nc > 1) oR[i] = r0 * dryA + wr * wetA * 1.0f;
@@ -940,6 +948,135 @@ struct Stutter
     }
 };
 
+// ------------------------------------------------------------------ cassette / VHS (facon Boards of Canada) :
+// echantillonneur fatigue (CRUNCH) -> enregistrement sature (SATURATE) -> lecture qui pleure (WOW / FLUTTER) -> bande usee (AGE) -> souffle (HISS)
+// Tout a zero = transparent (aucun retard tant que WOW et FLUTTER sont a zero).
+struct Tape
+{
+    static constexpr int kLen = 16384, kMask = kLen - 1;
+    float buf[2][kLen] {};
+    int w = 0;
+    float fs = 44100.f;
+    double wowPh = 0.0, flPh1 = 0.0, flPh2 = 0.0;
+    float drift = 0.f, driftT = 0.f, driftCnt = 0.f, scrape = 0.f, center = 0.f, centerC = 0.f;
+    float lp1[2] {}, lp2[2] {}, hb[2] {}, hp[2] {}, dc[2] {}, dcY[2] {}, hissLp[2] {}, hissHp[2] {}, held[2] {}, crLp[2] {};
+    float crPh = 0.f, drop = 1.f, dropT = 1.f, dropCnt = 0.f, lpCoef = 1.f;
+    Oversampler4 os;
+    Rng rng;
+
+    void prepare (float sampleRate)
+    {
+        fs = sampleRate; os.prepare (fs); rng.seed (0xCA55E77u);
+        for (auto& c : buf) for (auto& v : c) v = 0.f;
+        w = 0; wowPh = flPh1 = flPh2 = 0.0; drift = driftT = driftCnt = scrape = center = 0.f; drop = dropT = 1.f; dropCnt = 0.f; crPh = 0.f;
+        for (int c = 0; c < 2; ++c) lp1[c] = lp2[c] = hb[c] = hp[c] = dc[c] = dcY[c] = hissLp[c] = hissHp[c] = held[c] = crLp[c] = 0.f;
+        centerC = timeCoef (0.35f, fs); lpCoef = 1.f;
+    }
+
+    static float hermite (const float* b, int i0, float fr)
+    {
+        const float xm1 = b[(i0 - 1) & kMask], x0 = b[i0 & kMask], x1 = b[(i0 + 1) & kMask], x2 = b[(i0 + 2) & kMask];
+        const float c1 = 0.5f * (x1 - xm1), c2 = xm1 - 2.5f * x0 + 2.f * x1 - 0.5f * x2, c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+        return ((c3 * fr + c2) * fr + c1) * fr + x0;
+    }
+
+    void process (const Buf& in, Buf& o, int n, int nc, float wow, float flutter, float sat, float age, float hiss, float crunch, float mix)
+    {
+        const int ch = nc > 1 ? 2 : 1;
+        // ---- reglages du bloc
+        const float wowMs = 4.5f * std::pow (wow, 1.4f), flMs = 0.16f * std::pow (flutter, 1.3f);
+        const float centerT = (wowMs > 0.f || flMs > 0.f) ? (1.25f * wowMs + 1.6f * flMs + 0.35f) : 0.f;   // retard moyen : juste ce qu'il faut pour pleurer
+        const float fc = 19500.f * std::pow (2400.f / 19500.f, std::pow (age, 0.85f));                    // bande usee : les aigus partent
+        const float lpTarget = 1.f - std::exp (-2.f * kPi * std::min (fc, 0.45f * fs) / fs);
+        const float bump = 0.55f * age, hpC = onePoleCoef (20.f + 45.f * age, fs), hbC = onePoleCoef (110.f, fs);
+        const float drive = 1.f + 6.f * std::pow (sat, 1.2f), asym = 0.12f * sat, makeup = 1.f + 0.8f * sat;   // la bande compresse : un peu de gain pour garder le niveau
+        const float hissAmp = 0.035f * hiss * hiss;
+        const float hHpC = onePoleCoef (1800.f, fs), hLpC = onePoleCoef (6500.f + 6000.f * (1.f - age), fs);
+        const float crRate = 32000.f * std::pow (5500.f / 32000.f, crunch), crInc = crRate / fs;
+        const float crBits = std::pow (2.f, 15.f - 8.5f * crunch), crWet = std::min (1.f, crunch * 6.f);
+        const float crLpC = onePoleCoef (std::min (0.42f * crRate, 0.45f * fs), fs);
+        const float wowHz = 0.55f, fl1Hz = 6.8f, fl2Hz = 11.3f;
+
+        for (int i = 0; i < n; ++i)
+        {
+            // ---- modulation commune aux deux canaux (la bande defile pareil a gauche et a droite)
+            wowPh += wowHz / fs; if (wowPh >= 1.0) wowPh -= 1.0;
+            flPh1 += fl1Hz / fs; if (flPh1 >= 1.0) flPh1 -= 1.0;
+            flPh2 += fl2Hz / fs; if (flPh2 >= 1.0) flPh2 -= 1.0;
+            if ((driftCnt -= 1.f) <= 0.f) { driftCnt = fs * (0.6f + 1.4f * rng.uni()); driftT = rng.bi(); }   // derive lente et irreguliere du moteur
+            drift += (driftT - drift) * (1.6f / fs);
+            scrape += (rng.bi() - scrape) * (180.f / fs);                                                  // frottement : flutter aleatoire
+            const float wv = (float) std::sin (2.0 * kPi * wowPh) + 0.25f * (float) std::sin (4.0 * kPi * wowPh + 1.3);
+            const float fv = 0.6f * (float) std::sin (2.0 * kPi * flPh1) + 0.3f * (float) std::sin (2.0 * kPi * flPh2) + 0.5f * scrape;
+            center += (centerT - center) * centerC;
+            const float dMs = center + wowMs * (0.6f * wv + 0.55f * drift) + flMs * fv;
+            const float dS = std::max (0.f, dMs) * 0.001f * fs;
+            lpCoef += (lpTarget - lpCoef) * 0.002f;
+            // pertes de niveau d'une bande usee (rares et breves)
+            if (age > 0.35f && (dropCnt -= 1.f) <= 0.f)
+            {
+                dropCnt = fs * (0.4f + 3.f * rng.uni());
+                dropT = rng.uni() < 0.35f * (age - 0.35f) ? 1.f - 0.45f * age * rng.uni() : 1.f;
+            }
+            else if (age <= 0.35f) dropT = 1.f;
+            drop += (dropT - drop) * (60.f / fs);
+
+            // echantillonneur : la cadence de rafraichissement est commune
+            bool grab = false;
+            if (crWet > 0.f) { crPh += crInc; if (crPh >= 1.f) { crPh -= 1.f; grab = true; } }
+
+            for (int c = 0; c < ch; ++c)
+            {
+                const float dry = in.ch[c][i];
+                float x = dry;
+                // 1) CRUNCH : vieil echantillonneur (frequence et resolution reduites, filtre de sortie)
+                if (crWet > 0.f)
+                {
+                    if (grab) held[c] = std::round (x * crBits) / crBits;
+                    crLp[c] += crLpC * (held[c] - crLp[c]);
+                    x += (crLp[c] - x) * crWet;
+                }
+                // 2) SATURATE : enregistrement sature, suréchantillonne x4 (gain unite a bas niveau)
+                if (sat > 0.001f)
+                {
+                    float u4[4];
+                    os.up (x, c, u4);
+                    for (float& u : u4) { const float v = drive * u; u = std::tanh (v + asym * v * v) / drive * makeup; }
+                    x = os.down (u4, c);
+                    dc[c] += 0.0008f * (x - dc[c]); x -= dc[c];                                          // la saturation asymetrique laisse du continu
+                }
+                // 3) WOW / FLUTTER : lecture a vitesse variable
+                buf[c][w] = x;
+                if (centerT > 0.f || center > 0.01f)
+                {
+                    const float rp = (float) w - dS;
+                    const float fl = std::floor (rp);
+                    x = hermite (buf[c], (int) fl, rp - fl);
+                }
+                // 4) AGE : aigus qui partent (2 poles doux), bosse de tete de lecture, bas coupes
+                if (age > 0.001f)
+                {
+                    lp1[c] += lpCoef * (x - lp1[c]); lp2[c] += lpCoef * (lp1[c] - lp2[c]); x = lp2[c];
+                    hb[c] += hbC * (x - hb[c]); x += bump * (hb[c] - hp[c]);
+                    hp[c] += hpC * (x - hp[c]); x -= hp[c];
+                    x *= drop;
+                }
+                // 5) HISS : souffle de bande (bruit filtre, un peu plus sombre quand la bande est usee)
+                if (hissAmp > 0.f)
+                {
+                    const float nz = rng.bi();
+                    hissHp[c] += hHpC * (nz - hissHp[c]);
+                    const float hn = nz - hissHp[c];
+                    hissLp[c] += hLpC * (hn - hissLp[c]);
+                    x += hissAmp * (hissLp[c] + 0.15f * nz);
+                }
+                o.ch[c][i] = dry + (x - dry) * mix;
+            }
+            w = (w + 1) & kMask;
+        }
+    }
+};
+
 class Engine
 {
 public:
@@ -963,7 +1100,7 @@ public:
     }
 
     // ---- rack
-    void setDefaultRack() { setRack ({ NGate, NOct, NDist, NColor, NFilter, NDestroy, NComp, NStut, NBbd, NSpring, NVerb }); }
+    void setDefaultRack() { setRack ({ NGate, NOct, NDist, NColor, NFilter, NDestroy, NComp, NStut, NBbd, NSpring, NVerb, NTape }); }
     void setRack (const std::vector<int>& order)
     {
         int k = 0;
@@ -1027,7 +1164,7 @@ public:
     void clearPatch() { for (auto& a : audioIn) a.store (0); for (auto& c : cvIn) c.store (0); }
     std::string serializePatch() const
     {
-        std::string s = "v4:";
+        std::string s = "v5:";
         for (auto& a : audioIn) s += std::to_string (a.load()) + ",";
         for (auto& c : cvIn)    s += std::to_string (c.load()) + ",";
         return s;
@@ -1035,9 +1172,9 @@ public:
     void loadPatch (const std::string& s)
     {
         clearPatch();
-        const bool v4 = s.compare (0, 3, "v4:") == 0, v3 = s.compare (0, 3, "v3:") == 0, v2 = s.compare (0, 3, "v2:") == 0;   // v2 : avant la reverb (11 noeuds) ; v1 : avant le BBD (10 noeuds)
-        const char* p = s.c_str() + ((v4 || v3 || v2) ? 3 : 0);
-        const int nNodes = v4 ? (int) kNumNodes : (v3 ? 12 : (v2 ? 11 : 10));      // v3 : avant le stutter (12 noeuds)
+        const bool v5 = s.compare (0, 3, "v5:") == 0, v4 = s.compare (0, 3, "v4:") == 0, v3 = s.compare (0, 3, "v3:") == 0, v2 = s.compare (0, 3, "v2:") == 0;   // v2 : avant la reverb (11 noeuds) ; v1 : avant le BBD (10 noeuds)
+        const char* p = s.c_str() + ((v5 || v4 || v3 || v2) ? 3 : 0);
+        const int nNodes = v5 ? (int) kNumNodes : (v4 ? 13 : (v3 ? 12 : (v2 ? 11 : 10)));      // v3 : avant le stutter (12 noeuds) ; v4 : avant la cassette (13 noeuds)
         for (int i = 0; i < nNodes + kNumCv; ++i)
         {
             char* end = nullptr;
@@ -1046,8 +1183,8 @@ public:
             p = (*end == ',') ? end + 1 : end;
             if (i < nNodes)
             {
-                const int dst = (! v4 && i == nNodes - 1) ? (int) NOut : i;       // ancien NOut (dernier noeud) -> nouveau
-                audioIn[dst].store ((uint32_t) v & 0xFFFu);
+                const int dst = (i == nNodes - 1) ? (int) NOut : i;               // ancien NOut (dernier noeud) -> nouveau
+                audioIn[dst].store ((uint32_t) v & ((1u << NOut) - 1u));
             }
             else cvIn[i - nNodes].store ((uint32_t) v & 0xFu);
         }
@@ -1057,7 +1194,7 @@ public:
     {
         fs = sampleRate; fsOS = fs * 4.f;
         oct.prepare (fs); os.prepare (fs); storm.prepare (fsOS); cable.prepare (fs); comp.prepare (fs); gate.prepare (fs);
-        destroyer.prepare (fs); spring.prepare (fs); bbd.prepare (fs); verb.prepare (fs); stut.prepare (fs);
+        destroyer.prepare (fs); spring.prepare (fs); bbd.prepare (fs); verb.prepare (fs); stut.prepare (fs); tape.prepare (fs);
         for (auto& e : extS) e = 0.f;
         hpC = onePoleCoef (60.f, fsOS);
         sagA = timeCoef (0.03f, fsOS); sagR = timeCoef (0.25f, fsOS);
@@ -1179,6 +1316,7 @@ private:
                 case NStut:    modStut (in, out[nd], n, nc); break;
                 case NComp:    modComp (in, out[nd], n, nc); break;
                 case NSpring:  modSpring (in, out[nd], n, nc); break;
+                case NTape:    tape.process (in, out[nd], n, nc, p.tapeWow, p.tapeFlutter, p.tapeSat, p.tapeAge, p.tapeHiss, p.tapeCrunch, p.tapeMix); break;
                 default:       modOut (in, io, n, nc); break;
             }
             done[nd] = true;
@@ -1510,7 +1648,7 @@ private:
     Params p;
     float fs = 44100.f, fsOS = 176400.f;
     Buf out[kNumNodes];
-    Octaver oct; Oversampler4 os; Storm storm; BadCable cable; TubeComp comp; Gate gate; Destroyer destroyer; Spring spring; Bbd bbd; Reverb verb; Stutter stut; ChaosMod chaos;
+    Octaver oct; Oversampler4 os; Storm storm; BadCable cable; TubeComp comp; Gate gate; Destroyer destroyer; Spring spring; Bbd bbd; Reverb verb; Stutter stut; Tape tape; ChaosMod chaos;
     Biquad lowB, midB, hiB; Svf hpfSvf, lpfSvf;
     DistChannel dch[2];
     Lfo lfo1, lfo2; SampleHold sh; Rng shRng; float envV = 0.f;
@@ -1518,7 +1656,8 @@ private:
     static constexpr float Params::* kPs[] = { &Params::octAmt, &Params::power, &Params::clip, &Params::unc, &Params::low, &Params::mid, &Params::high, &Params::hpf, &Params::hpfPeak, &Params::lpf, &Params::lpfPeak,
         &Params::destroy, &Params::dGrain, &Params::compAmt, &Params::springMix, &Params::springDecay, &Params::springDrip, &Params::compThresh, &Params::gateThresh, &Params::gateRange,
         &Params::bbdFb, &Params::bbdTone, &Params::bbdMod, &Params::bbdMix, &Params::revMix, &Params::revSize, &Params::revDecay, &Params::revPre, &Params::revDamp, &Params::revMod, &Params::revWidth, &Params::revShimmer, &Params::revLowCut,
-        &Params::stutDecay, &Params::stutPitch, &Params::stutMix };
+        &Params::stutDecay, &Params::stutPitch, &Params::stutMix,
+        &Params::tapeWow, &Params::tapeFlutter, &Params::tapeSat, &Params::tapeAge, &Params::tapeHiss, &Params::tapeCrunch, &Params::tapeMix };
     static constexpr int kPsN = (int) (sizeof (kPs) / sizeof (kPs[0]));
     Params pT; float ps[kPsN] {}, ps1[kPsN] {}; bool psInit = false;
     float hpC = 0, sagA = 0, sagR = 0, xeUp = 0, xeDown = 0, gainSm = 0, dcC = 0, smoothC = 0;

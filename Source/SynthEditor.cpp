@@ -148,8 +148,21 @@ juce::String noteName (int n)
 }
 }
 
+// vitesses dans l'ordre musical (pour la molette) : x1/2, x1, x3/2, x2, x4
+static const int kSpeedOrder[orage::kNumSpeeds] { 3, 0, 4, 1, 2 };
+static int speedRank (int code) { for (int i = 0; i < orage::kNumSpeeds; ++i) if (kSpeedOrder[i] == code) return i; return 1; }
+static juce::String speedText (int code) { return juce::String::fromUTF8 (code == 3 ? "\xc3\x97\xc2\xbd" : code == 4 ? "\xc3\x97" "3/2" : code == 1 ? "\xc3\x97" "2" : code == 2 ? "\xc3\x97" "4" : "\xc3\x97" "1"); }
+
 void StepGrid::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
+    if (speedRow && (float) e.y > (float) getHeight() * 0.64f)                  // rangee SPEED : la molette passe d'une vitesse a l'autre
+    {
+        const int k = juce::jlimit (0, 15, (int) ((float) e.x / ((float) getWidth() / 16.f)));
+        const int r = juce::jlimit (0, orage::kNumSpeeds - 1, speedRank (proc.arpPat.speed[k].load()) + (w.deltaY > 0 ? 1 : -1));
+        proc.arpPat.speed[k] = kSpeedOrder[r];
+        repaint();
+        return;
+    }
     if (paramInt (proc.apvts, "s_arpType") != 1 || (float) e.y > (float) getHeight() * 0.64f) return;
     const int k = juce::jlimit (0, 15, (int) ((float) e.x / ((float) getWidth() / 16.f)));
     const int d = (w.deltaY > 0 ? 1 : -1) * (e.mods.isShiftDown() ? 12 : 1);
@@ -186,15 +199,29 @@ void StepGrid::paint (juce::Graphics& g)
             g.drawText (noteName (proc.arpPat.seqNote[k].load()), cell.toNearestInt().withTrimmedBottom (10), juce::Justification::centred, false);
             if (proc.arpPat.tie[k].load() != 0) { g.setColour (juce::Colours::black.withAlpha (0.8f * dim)); g.fillRoundedRectangle (cell.getRight() - 9.f, cell.getCentreY() - 3.f, 12.f, 6.f, 2.f); }
         }
-        // ratchet : 1 a 4 petits points
+        const int spd = proc.arpPat.speed[k].load();
+        if (spd != 0 && ! speedRow)                                                 // pas a vitesse propre : petit badge en haut de la case (visible aussi en vue RATCHET)
+        {
+            auto bd = juce::Rectangle<float> (cell.getRight() - 25.f, cell.getY() + 3.f, 22.f, 11.f);
+            g.setColour (juce::Colours::black.withAlpha (0.7f * dim)); g.fillRoundedRectangle (bd, 3.f);
+            g.setColour (ledCol().brighter (0.4f).withAlpha (dim)); g.setFont (bold (8.5f));
+            g.drawText (speedText (spd), bd.toNearestInt(), juce::Justification::centred, false);
+        }
         auto rc = juce::Rectangle<float> ((float) k * cw + 2.f, mainH + 2.f, cw - 4.f, (float) getHeight() - mainH - 4.f);
         drawWell (g, rc);
-        for (int d = 0; d < 4; ++d)
+        if (speedRow)                                                               // vitesse du pas : x1/2, x1, x3/2, x2, x4
         {
-            const float px = rc.getX() + rc.getWidth() * (0.2f + 0.2f * (float) d), py = rc.getCentreY();
-            g.setColour (d < rt && st > 0 ? ledCol().withAlpha (dim) : look::print.withAlpha (0.12f * dim));
-            g.fillEllipse (px - 3.f, py - 3.f, 6.f, 6.f);
+            g.setColour (spd != 0 ? ledCol().brighter (0.3f).withAlpha (dim) : look::print.withAlpha (0.28f * dim));
+            g.setFont (bold (spd != 0 ? 12.f : 10.f));
+            g.drawText (speedText (spd), rc.toNearestInt(), juce::Justification::centred, false);
         }
+        else                                                                        // ratchet : 1 a 4 petits points
+            for (int d = 0; d < 4; ++d)
+            {
+                const float px = rc.getX() + rc.getWidth() * (0.2f + 0.2f * (float) d), py = rc.getCentreY();
+                g.setColour (d < rt && st > 0 ? ledCol().withAlpha (dim) : look::print.withAlpha (0.12f * dim));
+                g.fillEllipse (px - 3.f, py - 3.f, 6.f, 6.f);
+            }
         if (k == cur) { g.setColour (juce::Colours::white.withAlpha (0.85f)); g.drawRoundedRectangle (juce::Rectangle<float> ((float) k * cw + 1.f, 1.f, cw - 2.f, (float) getHeight() - 2.f), 3.f, 1.6f); }
         if (recOn && k == recAt) { g.setColour (juce::Colour (0xffff4a3a)); g.drawRoundedRectangle (juce::Rectangle<float> ((float) k * cw + 1.f, 1.f, cw - 2.f, (float) getHeight() - 2.f), 3.f, 2.4f); }
     }
@@ -205,7 +232,12 @@ void StepGrid::apply (const juce::MouseEvent& e, bool first)
     const float cw = (float) getWidth() / 16.f, mainH = (float) getHeight() * 0.64f;
     const int k = juce::jlimit (0, 15, (int) ((float) e.x / cw));
     if (first) ratchetRow = (float) e.y > mainH;
-    if (ratchetRow)
+    if (ratchetRow && speedRow)                                                     // clic : vitesse suivante (x1 > x2 > x4 > x1/2 > x3/2), clic droit : x1 ; glisser = meme vitesse sur les pas voisins
+    {
+        if (first) { const int s = proc.arpPat.speed[k].load(); paintState = e.mods.isPopupMenu() ? 0 : (s + 1) % orage::kNumSpeeds; }
+        proc.arpPat.speed[k] = paintState;
+    }
+    else if (ratchetRow)
     {
         if (first) { const int r = proc.arpPat.ratchet[k].load(); paintState = e.mods.isPopupMenu() ? 1 : (r % 4) + 1; }
         proc.arpPat.ratchet[k] = paintState;
@@ -231,7 +263,7 @@ void StepGrid::randomize()
     }
     repaint();
 }
-void StepGrid::clear() { for (int k = 0; k < 16; ++k) { proc.arpPat.step[k] = 1; proc.arpPat.ratchet[k] = 1; } repaint(); }
+void StepGrid::clear() { for (int k = 0; k < 16; ++k) { proc.arpPat.step[k] = 1; proc.arpPat.ratchet[k] = 1; proc.arpPat.speed[k] = 0; } repaint(); }
 
 LaneEditor::LaneEditor (OrageAudioProcessor& p, int l) : proc (p), lane (l) { startTimerHz (20); }
 
@@ -484,20 +516,21 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
                 if (auto* sy = proc.apvts.getParameter ("s_arpSync")) sy->setValueNotifyingHost (0.f);
                 if (auto* rt = proc.apvts.getParameter ("s_arpRate")) rt->setValueNotifyingHost ((float) (std::log (hz / 0.5) / std::log (40.0)));
             });
-            auto* dir = knob (*u, "s_arpMode", "MODE");  dir->setChoices ({ "UP", "DOWN", "UP-DN", "PLAYED", "RANDOM", "CONVRG" });
+            auto* dir = knob (*u, "s_arpMode", "MODE");  dir->setChoices ({ "UP", "DOWN", "UP-DN", "PLAYED", "RANDOM", "CONVRG", "CHORD" });
             auto* oct = knob (*u, "s_arpOct", "OCTAVE"); oct->setChoices ({ "1", "2", "3", "4" });
-            auto* free = toggle (*u, "s_arpFree", "FREE RUN");
+            auto* free = toggle (*u, "s_arpFree", "FREE"); auto* thru = toggle (*u, "s_arpThru", "THRU");
             auto* type = selector (*u, "s_arpType", juce::StringArray { "ARP", "SEQ" });
             auto* t1 = tag (*u, "ON / LATCH"); auto* t4 = tag (*u, "TYPE  (SEQ = one stored note per step)");
             u->layoutFn = [=] (juce::Rectangle<int> r)
             {
                 const int w = r.getWidth(), kw = juce::jmin (150, (int) (w * 0.29f));
-                dir->setBounds (r.getX(), r.getY(), kw, r.getHeight());          oct->setBounds (r.getX() + kw + 4, r.getY(), kw, r.getHeight());
+                const int dw = kw + 40;                                         // MODE (7 crans nommes) plus large qu'OCTAVE : ses libelles lateraux ont la place
+                dir->setBounds (r.getX() - 4, r.getY(), dw, r.getHeight());      oct->setBounds (r.getX() + dw - 2, r.getY(), 2 * kw + 6 - dw, r.getHeight());
                 const int rx = r.getX() + 2 * kw + 16, rw = r.getRight() - rx, y = r.getY();
                 t1->setBounds (rx, y, 100, 10);                                  on->setBounds (rx, y + 12, rw, 34);
                 trip->setBounds (rx, y + 52, rw / 2 - 3, 32);                    tap->setBounds (rx + rw / 2 + 3, y + 52, rw - rw / 2 - 3, 32);
-                t4->setBounds (rx, y + 92, rw, 10);                              type->setBounds (rx, y + 104, rw / 2 - 3, 32);
-                free->setBounds (rx + rw / 2 + 3, y + 104, rw - rw / 2 - 3, 32);
+                t4->setBounds (rx, y + 92, rw, 10);                              type->setBounds (rx, y + 104, rw * 2 / 5 - 2, 32);
+                free->setBounds (rx + rw * 2 / 5 + 2, y + 104, rw * 3 / 10 - 2, 32); thru->setBounds (rx + rw * 7 / 10 + 2, y + 104, rw - rw * 7 / 10 - 2, 32);
             };
         }
         {
@@ -515,7 +548,7 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
         }
         // ---- rang 2 : pas des notes
         {
-            auto* u = unit ("NOTE STEPS  (click : rest / note / accent  -  lower row : ratchet)");
+            auto* u = unit ("NOTE STEPS  (click : rest / note / accent  -  lower row : ratchet or step speed)");
             auto* len = combo (*u, "s_arpLen");
             auto* grid = new StepGrid (proc); { std::unique_ptr<juce::Component> o (grid); u->addAndMakeVisible (*grid); owned.push_back (std::move (o)); }
             auto* rnd = button (*u, "RANDOM", [grid] { grid->randomize(); }); auto* clr = button (*u, "CLEAR", [grid] { grid->clear(); });
@@ -525,6 +558,11 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
             auto* tie = button (*u, "TIE", [this, stepLen, grid] { const int p = (proc.arpPat.recPos.load() + stepLen() - 1) % stepLen(); proc.arpPat.tie[p] = 1 - proc.arpPat.tie[p].load(); grid->repaint(); });
             auto* back = button (*u, "BACK", [this, stepLen, grid] { proc.arpPat.recPos = (proc.arpPat.recPos.load() + stepLen() - 1) % stepLen(); grid->repaint(); });
             auto* t1 = tag (*u, "PATTERN LENGTH"); auto* t3 = tag (*u, "STEP RECORD  (type SEQ)");
+            auto* rowR = button (*u, "RATCHET", nullptr); auto* rowS = button (*u, "STEP SPEED", nullptr);       // rangee du bas : ratchet ou vitesse du pas (meme principe que LANES 1-4 / 5-8)
+            for (auto* b : { rowR, rowS }) { b->setClickingTogglesState (true); b->setRadioGroupId (4712); }
+            rowR->setToggleState (true, juce::dontSendNotification);
+            rowR->onClick = [grid] { grid->setSpeedRow (false); };
+            rowS->onClick = [grid] { grid->setSpeedRow (true); };
             auto* t2 = tag (*u, "SEQ : REC, then play keys - one step per note. Wheel on a step = pitch.", juce::Justification::topLeft, 9.f);
             u->layoutFn = [=] (juce::Rectangle<int> r)
             {
@@ -535,6 +573,7 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
                 tie->setBounds (r.getX() + 164, r.getY() + 46, 74, 22); back->setBounds (r.getX() + 244, r.getY() + 46, 70, 22);
                 t2->setBounds (r.getX(), r.getY() + 74, 316, 22);
                 grid->setBounds (r.getX() + 330, r.getY(), r.getWidth() - 330, r.getHeight());
+                rowR->setBounds (r.getRight() - 186, r.getY() - 25, 80, 18); rowS->setBounds (r.getRight() - 102, r.getY() - 25, 96, 18);
             };
         }
         // ---- rang 3 : pistes de modulation
@@ -637,15 +676,32 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
     // ---- 3. enveloppes et modulation (indices 4..6)
     {
         auto* u = unit ("ENVELOPE  -  FILTER");
+        envFltUnit = u;
         auto* a = knob (*u, "s_fA", "ATTACK"); auto* d = knob (*u, "s_fD", "DECAY"); auto* s = knob (*u, "s_fS", "SUSTAIN"); auto* r2 = knob (*u, "s_fR", "RELEASE");
         auto ev = std::make_unique<EnvView> (proc.apvts, 'f'); auto* evp = ev.get(); u->addAndMakeVisible (*ev); owned.push_back (std::move (ev));
         u->layoutFn = [=] (juce::Rectangle<int> r) { evp->setBounds (r.getX(), r.getY() + 2, 124, r.getHeight() - 4); place (r, { a, d, s, r2 }, 130, 60); };
     }
     {
+        // LINK : l'enveloppe FILTRE pilote aussi le volume ; ce panneau devient ENV 2, libre (matrice : source ENV AMP, ou raccourci DEST / AMOUNT)
         auto* u = unit ("ENVELOPE  -  AMP");
         auto* a = knob (*u, "s_aA", "ATTACK"); auto* d = knob (*u, "s_aD", "DECAY"); auto* s = knob (*u, "s_aS", "SUSTAIN"); auto* r2 = knob (*u, "s_aR", "RELEASE");
         auto ev = std::make_unique<EnvView> (proc.apvts, 'a'); auto* evp = ev.get(); u->addAndMakeVisible (*ev); owned.push_back (std::move (ev));
-        u->layoutFn = [=] (juce::Rectangle<int> r) { evp->setBounds (r.getX(), r.getY() + 2, 124, r.getHeight() - 4); place (r, { a, d, s, r2 }, 130, 60); };
+        auto* lk = toggle (*u, "s_envLink", "LINK");
+        lk->setTooltip ("LINK: the filter envelope also drives the amp - this envelope becomes ENV 2, free for modulation");
+        auto* dst = combo (*u, "s_env2Dst");
+        auto* amt = knob (*u, "s_env2Amt", "AMOUNT", "-", "+");
+        envLinkUnit = u; envLinkDst = dst;
+        u->layoutFn = [=] (juce::Rectangle<int> r)
+        {
+            const bool on = proc.apvts.getRawParameterValue ("s_envLink")->load() > 0.5f;
+            lk->setBounds (r.getX(), r.getY() + 2, 124, 22);
+            evp->setVisible (! on); dst->setVisible (on); amt->setVisible (on);
+            const auto side = juce::Rectangle<int> (r.getX(), r.getY() + 28, 124, r.getHeight() - 30);
+            evp->setBounds (side);
+            dst->setBounds (side.getX(), side.getY(), side.getWidth(), 22);
+            amt->setBounds (side.withTrimmedTop (24));
+            place (r, { a, d, s, r2 }, 130, 60);
+        };
     }
     {
         auto* u = unit ("LFO  /  S&H");
@@ -785,6 +841,7 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
             if (id < 2) return;
             const auto& c = kCh[id - 2];
             auto S = [this] (const char* n, float v) { proc.setParamReal (n, v); };
+            S ("s_oct2", 2.f); S ("s_tune2", 0.f); S ("s_fine2", 0.f);                     // le rapport du caractere s'entend tel quel
             S ("s_fm", c.fm); S ("s_fmRatio", (float) c.ratio); S ("s_fmWave", (float) c.mwave); S ("s_fmDir", (float) c.dir);
             S ("s_fmEnvAmt", c.envAmt); S ("s_fmAtt", c.att); S ("s_fmDec", c.dec); S ("s_fmFine", c.fine); S ("s_fmVel", c.vel); S ("s_fmAT", c.at);
             S ("s_fmType", (float) c.type); S ("s_fmFb", c.fb); S ("s_fmKey", c.key);
@@ -802,6 +859,7 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
             const int ratioIdx = harmonic[rnd.nextInt ((int) (sizeof (harmonic) / sizeof (harmonic[0])))];
             const float dec = 0.1f + rnd.nextFloat() * 0.7f, sustained = rnd.nextFloat() < 0.25f ? 1.f : 0.f;
             auto S = [this] (const char* n, float v) { proc.setParamReal (n, v); };
+            S ("s_oct2", 2.f); S ("s_tune2", 0.f); S ("s_fine2", 0.f);
             S ("s_fmType", 1.f); S ("s_fmDir", 0.f); S ("s_fmWave", 1.f); S ("s_fmRatio", (float) ratioIdx);
             S ("s_fm", 0.12f + rnd.nextFloat() * 0.3f); S ("s_fmEnvAmt", sustained > 0.f ? rnd.nextFloat() * 0.3f : 0.3f + rnd.nextFloat() * 0.6f);
             S ("s_fmDec", dec); S ("s_fmAtt", sustained > 0.f ? rnd.nextFloat() * 0.5f : 0.f); S ("s_fmFb", rnd.nextFloat() < 0.4f ? rnd.nextFloat() * 0.35f : 0.f);
@@ -858,6 +916,13 @@ SynthPanel::SynthPanel (OrageAudioProcessor& p, int pg) : proc (p), page (pg)
 void SynthPanel::timerCallback()
 {
     for (auto* v : lfoViews) v->repaint();
+    if (envLinkUnit != nullptr)                                                         // LINK : titres et commandes des panneaux d'enveloppes
+    {
+        const bool on = proc.apvts.getRawParameterValue ("s_envLink")->load() > 0.5f;
+        const juce::String t = on ? "ENV 2  -  FREE  (AMP = FILTER ENV)" : "ENVELOPE  -  AMP";
+        if (envLinkUnit->title != t || envLinkDst->isVisible() != on) { envLinkUnit->title = t; envLinkUnit->resized(); envLinkUnit->repaint(); }
+        if (envFltUnit != nullptr) { const juce::String tf = on ? "ENVELOPE  -  FILTER  +  AMP" : "ENVELOPE  -  FILTER"; if (envFltUnit->title != tf) { envFltUnit->title = tf; envFltUnit->repaint(); } }
+    }
     // le nom de chaque macro = destination de la premiere ligne de matrice qu'elle pilote
     for (size_t k = 0; k < macroKnobs.size(); ++k)
     {

@@ -105,6 +105,7 @@ public:
     std::atomic<int> quality { 1 };             // 0 performance, 1 qualite, 2 high fidelity
     std::atomic<int> ccSmooth { 3 };            // lissage des reglages : 0 off, 1 5 ms, 2 10 ms, 3 20 ms, 4 40 ms, 5 80 ms
     std::atomic<int> atCurve { 0 };             // courbe de l'aftertouch : 0 lineaire, 1 exponentielle, 2 logarithmique, 3 en S
+    std::atomic<int> vcoPhase { 0 }, vcoModel { 0 };   // SETTINGS > VCO PHASE : 0 libre / 1 recalee ; VCO MODEL : 0 analogique / 1 numerique pur
     std::atomic<int> mpeOn { 0 }, mpeBend { 3 };   // MPE : 0 off / 1 on ; plage de bend par note : 0 +/-2, 1 +/-12, 2 +/-24, 3 +/-48 demi-tons
     std::atomic<int> atSpeed { 2 };             // reactivite de l'aftertouch : 0 instantanee ... 5 tres lente
     void settingChanged() { mapDirty.store (true); }
@@ -138,7 +139,7 @@ private:
     struct MidiEv { int pos; int type; int a; float v; };       // type : 0 note on, 1 note off, 2 all off, 3 bend, 4 molette, 5 aftertouch poly, 6 aftertouch canal, 7/8/9 notes brutes de l'arpegiateur (simple / pile unison / off)
     std::vector<MidiEv> evs;
     int lastArpOn = 0, lastAssign = 0, chordN = 3, chordIv[6] { 4, 7, 11, 0, 0, 0 }, learnHeldN = 0;
-    bool chordLearn = false, lastLearn = false, learnHeld[128] {}, learnPeak[128] {}, seqRec = false, lastRec = false;
+    bool arpThru = false, chordLearn = false, lastLearn = false, learnHeld[128] {}, learnPeak[128] {}, seqRec = false, lastRec = false;
     bool handleCC (int cc, int value);
     void applyMapped (int i, float v, float prevHw);
     juce::StringArray mapIds;                                   // identifiants de tous les parametres assignables

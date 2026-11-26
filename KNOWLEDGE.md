@@ -107,3 +107,26 @@ Table de données (tools/presets/presets.py) → code C++ → banc de test qui j
 - Program Change : ne jamais charger un preset depuis le thread audio ; poser un atomic + `AsyncUpdater`, et un compteur que l'éditeur surveille pour se rafraîchir.
 - Pédale de sustain : retenir les note-off dans le processeur (indépendant du moteur de voix).
 - Ajouter un paramètre = toujours à la FIN de la liste des paramètres (et de sa lecture), pour rester compatible avec les états sauvegardés.
+
+## v22d : FM, sequenceur
+- Rapport FM : la hauteur du VCO 2 = VCO 1 x rapport ; ajouter 12*oct2 + tune2 + fine2 par-dessus, sinon ces potards sont morts.
+- SEQ : dans Arp, ne jamais remettre phase/stepCount a zero sur noteOn en mode SEQ ; faire tourner l'horloge a vide quand aucune touche n'est tenue ; caler sur le DAW au debut du bloc (position en pas = ppq x pas par temps) en comparant les positions "sans swing" (pas pair long de 1+sw, impair de 1-sw), recaler seulement si l'ecart > 0,02 pas.
+- Processeur : TYPE SEQ force ap.on = 1 (sauf enregistrement pas a pas).
+- LINK des enveloppes : le VCA doit rester au rythme audio -> quand LINK est allume, l'enveloppe audio `aenv` est cadencee avec les reglages FILTRE, et une 3e enveloppe `e2` (reglages AMP, cadencee au bloc) sert de source ENV AMP / raccourci. Fin de voix = `aenv` (release FILTRE). Parametres ajoutes en fin de liste : s_envLink, s_env2Dst, s_env2Amt.
+
+## v22e : VCO (identique a Zephyr v3c, voir son KNOWLEDGE)
+- Hard sync : polyBLEP au recalage (sortie VCO retardee d'un echantillon), surechantillonnage de la section VCO (x2 / x4), phase libre, modele analogique (rampe courbee, liaison 5 Hz, tolerances par voix).
+- Mesure du repliement : FFT Blackman-Harris, pire raie hors harmoniques sous 16 kHz.
+
+## v22e : audit (voir aussi Zephyr v3c)
+- Voix reutilisee : garder son etat (pas de `*v = Voice()` si elle sonne). Reverb Hermite + dampHz x0,73 + passe-bas 8 kHz = meme couleur. BBD : bruit d'horloge x min(1, 0,03 + 20 x enveloppe du signal) (compander). Surechantillonneur x4 elliptique.
+
+
+## v23 : cassette, CHORD, vitesse par pas
+- Nouveau module de rack : l'inserer AVANT NOut dans l'enum Node (NOut passe de 12 a 13) et monter la version du patch (v5) ; a la relecture, le dernier noeud d'un ancien patch = NOut, quel que soit le nombre de noeuds ; masque des sources = (1 << NOut) - 1. kMaxRack, kTileNodes, nodeName, baIndex/kBaBody/baGlyph, pruneUnusedModules (idle) et la colonne MODULES (decaler MASTER / RESET d'une rangee : kTileShift) suivent.
+- Effet a retard variable (wow) : interpolation Hermite = 2 echantillons de retard minimum ; a zero, ne PAS lire la ligne (sinon decalage de phase contre le dry du DRY/WET maitre).
+- Saturation de bande : tanh(drive x)/drive garde le gain unite a bas niveau mais perd 6 dB sur un signal fort a fond -> compensation 1 + 0,8 x SATURATE.
+- Arpegiateur multi-notes : `sounding` remplace par un tableau ; toutes les notes du pas s'eteignent avant le suivant.
+- Vitesse par pas : l'increment de phase = base x vitesse / (1 +/- swing) ; au changement de pas, convertir le reste de phase a la nouvelle cadence. Calage DAW : position = somme des durees des pas sur un cycle (motif, x2 si longueur impaire pour la parite du swing) ; avec toutes les vitesses a x1 on retombe exactement sur l'ancienne formule.
+- Potard cranté : la taille du bouton tient compte du libelle lateral le plus long (sinon le texte passe sous le bouton ou hors du cadre).
+- Banc local sans fenetre : compiler les modules JUCE a part (XRANDR/XINERAMA/XCURSOR/ALSA = 0, + juce_graphics_Harfbuzz.cpp, juce_graphics_Sheenbidi.c, juce_core_CompilationTime.cpp), puis `createComponentSnapshot` de l'editeur pour les captures, onglets ouverts en appelant `onClick` des boutons.
